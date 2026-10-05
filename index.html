@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="StudyMantra — the HSC Maharashtra ledger for Class 11 and 12. Track chapters, backlog, revision, tests, and exam readiness.">
   <meta name="robots" content="noindex">
-  <meta name="theme-color" content="#1c1915">
+  <meta name="theme-color" content="#10233c">
   <meta name="application-name" content="StudyMantra">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="StudyMantra">
@@ -24,6 +24,10 @@
           theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         }
         document.documentElement.setAttribute("data-theme", theme);
+        var wide = matchMedia("(min-width: 961px)").matches;
+        var stored = localStorage.getItem("sm-nav");
+        var navOpen = wide ? stored !== "closed" : false;
+        document.documentElement.dataset.sidebar = navOpen ? "open" : "closed";
       } catch (e) {}
     })();
   </script>

@@ -4,8 +4,8 @@
   "description": "HSC Maharashtra study ledger for Class 11 and 12.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1c1915",
-  "theme_color": "#1c1915",
+  "background_color": "#10233c",
+  "theme_color": "#10233c",
   "icons": [
     { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

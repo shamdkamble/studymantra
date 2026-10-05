@@ -1,10 +1,11 @@
 /**
  * Email + password sessions. scrypt hashes, HMAC tokens.
- * Same approach as DSAMantra, without a shared admin password.
+ * A student session exists only after the desk code is redeemed.
  */
 
 import crypto from "crypto";
 import { promisify } from "util";
+import { accountRole, accountStatus } from "./accounts.js";
 
 const scrypt = promisify(crypto.scrypt);
 const TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -86,12 +87,15 @@ export function publicUser(user) {
     name: user.name,
     email: user.email,
     avatarUrl: user.avatarUrl || "",
+    role: accountRole(user),
+    status: accountStatus(user),
   };
 }
 
 export function sessionFor(user) {
+  const role = accountRole(user);
   return {
-    token: signToken({ sub: user.id, email: user.email }),
+    token: signToken({ sub: user.id, email: user.email, role }),
     user: publicUser(user),
   };
 }

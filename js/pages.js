@@ -23,9 +23,11 @@ export function pageHtml(current) {
   }
 }
 
-export function authScreen(mode, error) {
-  const root = document.getElementById("app");
-  root.innerHTML = authHtml(mode === "register" ? "register" : "login", error);
+export function authScreen(current, error) {
+  const sent = current.name === "register" && current.query.get("sent") === "1";
+  const mode = sent ? "requested" : current.name === "approve" ? "approve" : current.name === "register" ? "register" : "login";
+  const email = current.query.get("email") || "";
+  document.getElementById("app").innerHTML = authHtml(mode, error, { email });
 }
 
 export function titleFor(current) {

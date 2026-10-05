@@ -1,4 +1,4 @@
-export const PUBLIC = new Set(["login", "register"]);
+export const PUBLIC = new Set(["login", "register", "approve"]);
 
 export function route() {
   const raw = (location.hash || "#/dashboard").replace(/^#/, "");
@@ -26,7 +26,9 @@ export function pageTitle(current) {
     mocks: "CET mocks",
     settings: "Settings",
     login: "Sign in",
-    register: "Create account",
+    register: "Request a ledger",
+    approve: "Enter code",
+    admin: "Desk",
   };
   return titles[current.name] || "StudyMantra";
 }

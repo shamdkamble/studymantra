@@ -17,6 +17,46 @@ const MAIN_LINKS = [
   ["mocks", "CET mocks", "M"],
 ];
 
+export function wideNav() {
+  return matchMedia("(min-width: 961px)").matches;
+}
+
+export function setNav(open, { persist = false } = {}) {
+  const shown = Boolean(open);
+  document.documentElement.dataset.sidebar = shown ? "open" : "closed";
+  document.body.classList.toggle("nav-open", shown && !wideNav());
+  document.querySelectorAll(".sidebar").forEach((node) => {
+    node.setAttribute("aria-hidden", shown ? "false" : "true");
+  });
+  if (persist && wideNav()) {
+    try { localStorage.setItem("sm-nav", shown ? "open" : "closed"); } catch { /* private mode */ }
+  }
+  paintNav();
+}
+
+export function toggleNav() {
+  const shown = wideNav()
+    ? document.documentElement.dataset.sidebar === "open"
+    : document.body.classList.contains("nav-open");
+  setNav(!shown, { persist: true });
+}
+
+export function closeOverlayNav() {
+  if (wideNav()) return;
+  setNav(false);
+}
+
+const MENU_BUTTON = `<button type="button" class="menu-btn" data-action="menu" aria-label="Show sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg></button>`;
+
+export function paintNav() {
+  const open = document.documentElement.dataset.sidebar === "open";
+  const shown = wideNav() ? open : document.body.classList.contains("nav-open");
+  document.querySelectorAll(".menu-btn").forEach((button) => {
+    button.setAttribute("aria-expanded", shown ? "true" : "false");
+    button.setAttribute("aria-label", shown ? "Hide sidebar" : "Show sidebar");
+  });
+}
+
 export function ensureShell() {
   if (document.querySelector(".app")) return;
   const root = document.getElementById("app");
@@ -36,7 +76,7 @@ export function ensureShell() {
     <button type="button" class="scrim" data-action="menu-close" aria-label="Close menu"></button>
     <div class="main">
       <header class="topbar">
-        <button type="button" class="btn btn-ghost menu-btn" data-action="menu" aria-label="Open menu">Menu</button>
+        ${MENU_BUTTON}
         <div class="year-switch" role="group" aria-label="Year">
           <button type="button" data-action="year" data-year="all">Both</button>
           <button type="button" data-action="year" data-year="11">11</button>
@@ -73,6 +113,7 @@ export function ensureShell() {
   </div>`;
   fillTimerChapters("m1");
   paintIdentity();
+  paintNav();
 }
 
 function link([id, label, key]) {
@@ -85,6 +126,35 @@ function subjectLink(year, subject) {
     <span class="nav-copy">${esc(subject.short)}<i class="nav-meter" data-meter="${year}:${subject.id}"><b></b></i></span>
     <small data-meter-label="${year}:${subject.id}">0%</small>
   </a>`;
+}
+
+export function ensureDeskShell() {
+  if (document.querySelector(".desk-app")) return;
+  const root = document.getElementById("app");
+  root.innerHTML = `<div class="app desk-app">
+    <aside class="sidebar" aria-label="Desk">
+      <a class="brand" href="#/admin"><span class="brand-mark">Sm</span><span><b>StudyMantra</b><small>Admin desk</small></span></a>
+      <nav>
+        <p class="nav-label">Desk</p>
+        <a class="nav-link is-active" href="#/admin" data-nav="admin"><span class="nav-key">A</span><span>Students</span></a>
+        <p class="nav-label">Account</p>
+        <button type="button" class="nav-link nav-button" data-action="logout">Sign out</button>
+      </nav>
+    </aside>
+    <button type="button" class="scrim" data-action="menu-close" aria-label="Close menu"></button>
+    <div class="main">
+      <header class="topbar">
+        ${MENU_BUTTON}
+        <p class="desk-crumb">Desk</p>
+        <span class="top-spacer"></span>
+        <button type="button" class="btn btn-ghost" data-action="theme" aria-label="Toggle theme">Theme</button>
+        <a class="identity" href="#/admin" id="identity"></a>
+      </header>
+      <div class="page" id="page"></div>
+    </div>
+  </div>`;
+  paintIdentity();
+  paintNav();
 }
 
 export function paintChrome(current = route()) {
@@ -103,6 +173,7 @@ export function paintChrome(current = route()) {
     });
   }
   paintIdentity();
+  paintNav();
 }
 
 export function paintIdentity() {

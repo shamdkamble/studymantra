@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "test": "node --test scripts/test-engine.mjs scripts/test-render.mjs scripts/test-state-doc.mjs"
+    "test": "node --test scripts/test-engine.mjs scripts/test-render.mjs scripts/test-state-doc.mjs scripts/test-accounts.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",

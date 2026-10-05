@@ -1,8 +1,9 @@
-import { token } from "./api.js";
+import { setToken, token } from "./api.js";
 import { PUBLIC, route } from "./router.js";
-import { ensureData, refreshHealth, resetSession, ui } from "./store.js";
-import { ensureShell, paintChrome } from "./shell.js";
+import { ensureData, ensureSession, getUser, refreshHealth, resetSession, ui } from "./store.js";
+import { ensureDeskShell, ensureShell, paintChrome } from "./shell.js";
 import { authScreen, pageHtml, titleFor } from "./pages.js";
+import { deskHtml, loadDesk } from "./views/admin.js";
 import { esc } from "./format.js";
 import { syncLengths } from "./timer.js";
 
@@ -27,6 +28,17 @@ export async function renderCurrent({ keep = false } = {}) {
   }
 }
 
+function authTitle(current) {
+  if (current.name === "approve") return "Enter code";
+  if (current.name === "register") return current.query.get("sent") === "1" ? "Request received" : "Request a ledger";
+  return "Sign in";
+}
+
+function leaveSession() {
+  setToken("");
+  resetSession();
+}
+
 async function draw(keep) {
   const current = route();
   if (!token()) {
@@ -34,12 +46,57 @@ async function draw(keep) {
       location.hash = "#/login";
       return;
     }
-    authScreen(current.name);
-    document.title = `${current.name === "register" ? "Create account" : "Sign in"} · StudyMantra`;
+    authScreen(current);
+    document.title = `${authTitle(current)} · StudyMantra`;
     return;
   }
 
-  if (PUBLIC.has(current.name)) {
+  if (!getUser()) {
+    try {
+      await ensureSession();
+    } catch (err) {
+      if (err.status === 401 || err.status === 403) {
+        leaveSession();
+        if (route().name !== "login") location.hash = "#/login";
+        else authScreen(route());
+        return;
+      }
+      document.getElementById("app").innerHTML = `<div class="boot"><h1>Could not open StudyMantra</h1><p>${esc(err.message)}</p><button type="button" class="btn btn-primary" onclick="location.reload()">Try again</button></div>`;
+      return;
+    }
+  }
+
+  if (getUser()?.role === "admin") {
+    if (current.name !== "admin") {
+      location.hash = "#/admin";
+      return;
+    }
+    if (!document.querySelector(".desk-app")) {
+      document.getElementById("app").innerHTML = `<div class="boot"><p>Opening the desk…</p></div>`;
+    }
+    try {
+      await loadDesk(current.query.get("user") || "", { fresh: !keep });
+    } catch (err) {
+      if (err.status === 401 || err.status === 403) {
+        leaveSession();
+        location.hash = "#/login";
+        return;
+      }
+      const host = document.getElementById("page") || document.getElementById("app");
+      host.innerHTML = `<div class="boot"><h1>Could not open the desk</h1><p>${esc(err.message)}</p><button type="button" class="btn btn-primary" onclick="location.reload()">Try again</button></div>`;
+      return;
+    }
+    ensureDeskShell();
+    const deskPage = document.getElementById("page");
+    const deskPath = `${current.hash.split("?")[0]}:${current.query.get("user") || ""}`;
+    if (!keep || deskPath !== lastPath) deskPage.scrollTop = 0;
+    lastPath = deskPath;
+    deskPage.innerHTML = deskHtml();
+    document.title = "Desk · StudyMantra";
+    return;
+  }
+
+  if (PUBLIC.has(current.name) || current.name === "admin") {
     location.hash = "#/dashboard";
     return;
   }
@@ -51,9 +108,8 @@ async function draw(keep) {
   try {
     await ensureData();
   } catch (err) {
-    if (err.status === 401) {
-      resetSession();
-      localStorage.removeItem("sm-token");
+    if (err.status === 401 || err.status === 403) {
+      leaveSession();
       location.hash = "#/login";
       return;
     }

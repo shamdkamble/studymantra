@@ -9,7 +9,10 @@ import crypto from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
 import { connectDB, formatMongoError, getMongoDiagnostics, getMongoUri, isMongoConnected } from "./db/mongodb.js";
+import { accountRole, accountStatus, codesMatch, codeExpired, loginDenial, normalizeCode } from "./accounts.js";
 import { AuthError, hashPassword, publicUser, requireAuth, sessionFor, verifyPassword } from "./auth.js";
+import { mountDesk } from "./desk-routes.js";
+import { requireStudent } from "./guard.js";
 import { User } from "./models/User.js";
 import { StudyState } from "./models/StudyState.js";
 import { defaultState, sanitizeState } from "../js/engine.js";
@@ -114,18 +117,48 @@ app.post("/api/auth/register", async (req, res) => {
     if (!EMAIL_RE.test(email) || email.length > 160) throw new AuthError("Enter a valid email.");
     if (password.length < 8 || password.length > 200) throw new AuthError("Use a password of at least 8 characters.");
 
-    await connectDB();
-    const existing = await User.findOne({ email }).lean();
-    if (existing) throw new AuthError("An account with that email already exists.", 409, "EMAIL_TAKEN");
+    const adminEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    if (adminEmail && email === adminEmail) {
+      throw new AuthError("An account with that email already exists.", 409, "EMAIL_TAKEN");
+    }
 
-    const user = await User.create({
+    await connectDB();
+    const existing = await User.findOne({ email });
+    if (existing) {
+      const role = accountRole(existing);
+      const status = accountStatus(existing);
+      if (role === "admin" || status === "active" || status === "disabled" || status === "approved") {
+        const code = status === "approved" ? "AWAITING_CODE" : status === "disabled" ? "DISABLED" : "EMAIL_TAKEN";
+        const message = status === "approved"
+          ? "A code is already waiting for this email. Enter it on the approval page."
+          : status === "disabled"
+            ? "This account is disabled."
+            : "An account with that email already exists.";
+        throw new AuthError(message, 409, code);
+      }
+      existing.name = name;
+      existing.passwordHash = await hashPassword(password);
+      existing.role = "student";
+      existing.status = "pending";
+      existing.approvalCode = "";
+      existing.approvalIssuedAt = null;
+      existing.approvalExpiresAt = null;
+      await existing.save();
+      clearFailures(ip);
+      res.status(202).json({ pending: true, email });
+      return;
+    }
+
+    await User.create({
       id: crypto.randomUUID(),
       name,
       email,
       passwordHash: await hashPassword(password),
+      role: "student",
+      status: "pending",
     });
     clearFailures(ip);
-    res.status(201).json(sessionFor(user));
+    res.status(202).json({ pending: true, email });
   } catch (err) {
     sendError(res, err, "Could not create the account.");
   }
@@ -146,9 +179,51 @@ app.post("/api/auth/login", async (req, res) => {
       throw new AuthError("Email or password is incorrect.", 401, "INVALID_CREDENTIALS");
     }
     clearFailures(ip);
+    const denial = loginDenial(user);
+    if (denial) throw new AuthError(denial.message, denial.status, denial.code);
     res.json(sessionFor(user));
   } catch (err) {
     sendError(res, err, "Could not sign in.");
+  }
+});
+
+app.post("/api/auth/redeem", async (req, res) => {
+  try {
+    const ip = clientIp(req);
+    if (tooMany(ip)) {
+      res.status(429).json({ error: { message: "Too many attempts. Wait a few minutes.", code: "RATE_LIMIT" } });
+      return;
+    }
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const code = String(req.body?.code || "");
+    if (!EMAIL_RE.test(email) || email.length > 160) throw new AuthError("Enter the email you requested with.");
+    if (normalizeCode(code).length !== 8) throw new AuthError("Enter the 8-character code.");
+    await connectDB();
+    const user = await User.findOne({ email });
+    if (!user || accountRole(user) === "admin") {
+      throw new AuthError("That code does not match this email.", 400, "BAD_CODE");
+    }
+    const status = accountStatus(user);
+    if (status === "active") {
+      throw new AuthError("This ledger is already open. Sign in with your password.", 409, "ALREADY_ACTIVE");
+    }
+    if (status === "pending") throw new AuthError("This request is still waiting for a code.", 403, "PENDING");
+    if (status === "rejected") throw new AuthError("This request was declined.", 403, "REJECTED");
+    if (status === "disabled") throw new AuthError("This account is disabled.", 403, "DISABLED");
+    if (status !== "approved" || !user.approvalCode || !codesMatch(user.approvalCode, code)) {
+      throw new AuthError("That code does not match this email.", 400, "BAD_CODE");
+    }
+    if (codeExpired(user)) throw new AuthError("That code has expired. Ask Sham for a new one.", 400, "CODE_EXPIRED");
+    user.status = "active";
+    user.approvalCode = "";
+    user.approvalIssuedAt = null;
+    user.approvalExpiresAt = null;
+    user.activatedAt = new Date();
+    await user.save();
+    clearFailures(ip);
+    res.json(sessionFor(user));
+  } catch (err) {
+    sendError(res, err, "Could not open the ledger.");
   }
 });
 
@@ -156,14 +231,14 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
   try {
     await connectDB();
     const user = await User.findOne({ id: req.auth.sub }).lean();
-    if (!user) throw new AuthError("Account not found.", 401, "UNAUTHORIZED");
+    if (!user || accountStatus(user) !== "active") throw new AuthError("Sign in again to continue.", 401, "UNAUTHORIZED");
     res.json({ user: publicUser(user) });
   } catch (err) {
     sendError(res, err, "Could not load your account.");
   }
 });
 
-app.patch("/api/auth/me", requireAuth, async (req, res) => {
+app.patch("/api/auth/me", requireStudent, async (req, res) => {
   try {
     const name = String(req.body?.name || "").trim().replace(/\s+/g, " ");
     if (name.length < 2 || name.length > 80) throw new AuthError("Enter your name.");
@@ -184,7 +259,7 @@ function statePayload(doc) {
   };
 }
 
-app.get("/api/state", requireAuth, async (req, res) => {
+app.get("/api/state", requireStudent, async (req, res) => {
   try {
     await connectDB();
     const doc = await StudyState.findOne({ userId: req.auth.sub }).lean();
@@ -194,7 +269,7 @@ app.get("/api/state", requireAuth, async (req, res) => {
   }
 });
 
-app.put("/api/state", requireAuth, async (req, res) => {
+app.put("/api/state", requireStudent, async (req, res) => {
   try {
     await connectDB();
     const incoming = req.body?.state && typeof req.body.state === "object" ? req.body.state : req.body;
@@ -240,7 +315,7 @@ function decodePayload(data) {
   return { buffer, hinted };
 }
 
-app.post("/api/media/avatar", requireAuth, async (req, res) => {
+app.post("/api/media/avatar", requireStudent, async (req, res) => {
   try {
     const { buffer, hinted } = decodePayload(req.body?.data);
     const type = prepareUpload(buffer, req.body?.contentType || hinted, { pdf: false });
@@ -259,7 +334,7 @@ app.post("/api/media/avatar", requireAuth, async (req, res) => {
   }
 });
 
-app.delete("/api/media/avatar", requireAuth, async (req, res) => {
+app.delete("/api/media/avatar", requireStudent, async (req, res) => {
   try {
     await connectDB();
     const user = await User.findOne({ id: req.auth.sub });
@@ -274,7 +349,7 @@ app.delete("/api/media/avatar", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/media/attachment", requireAuth, async (req, res) => {
+app.post("/api/media/attachment", requireStudent, async (req, res) => {
   try {
     const { buffer, hinted } = decodePayload(req.body?.data);
     const type = prepareUpload(buffer, req.body?.contentType || hinted, { pdf: true });
@@ -287,7 +362,7 @@ app.post("/api/media/attachment", requireAuth, async (req, res) => {
   }
 });
 
-app.delete("/api/media/attachment", requireAuth, async (req, res) => {
+app.delete("/api/media/attachment", requireStudent, async (req, res) => {
   try {
     const key = String(req.body?.key || "");
     if (!ownsKey(req.auth.sub, key)) throw new MediaError("That file is not on your account.", 403, "FORBIDDEN");
@@ -297,6 +372,8 @@ app.delete("/api/media/attachment", requireAuth, async (req, res) => {
     sendError(res, err, "Could not delete the file.");
   }
 });
+
+mountDesk(app, { sendError });
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: { message: "Not found.", code: "NOT_FOUND" } });

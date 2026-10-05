@@ -1,5 +1,6 @@
 import { bind } from "./actions.js";
 import { renderCurrent } from "./render.js";
+import { closeOverlayNav } from "./shell.js";
 import { flush, setConflictHandler } from "./store.js";
 import { onTimerLogged, startClock } from "./timer.js";
 import { toast } from "./toast.js";
@@ -17,7 +18,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("hashchange", () => {
-  document.body.classList.remove("nav-open");
+  closeOverlayNav();
   renderCurrent();
 });
 

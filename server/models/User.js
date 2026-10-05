@@ -8,6 +8,12 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     avatarUrl: { type: String, default: "" },
     avatarKey: { type: String, default: "" },
+    role: { type: String, enum: ["student", "admin"], default: "student" },
+    status: { type: String, enum: ["pending", "approved", "active", "rejected", "disabled"], default: "active" },
+    approvalCode: { type: String, default: "" },
+    approvalIssuedAt: { type: Date, default: null },
+    approvalExpiresAt: { type: Date, default: null },
+    activatedAt: { type: Date, default: null },
   },
   { collection: "study_users", timestamps: true, versionKey: false },
 );

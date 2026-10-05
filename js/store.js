@@ -167,6 +167,13 @@ export async function flush() {
   }
 }
 
+export async function ensureSession() {
+  if (user) return user;
+  const me = await api("/api/auth/me");
+  user = me.user;
+  return user;
+}
+
 export async function ensureData() {
   if (ready && data && user) return;
   if (!loading) {

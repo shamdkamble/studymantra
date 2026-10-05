@@ -1,4 +1,5 @@
 import { api, setToken } from "./api.js";
+import { invalidateDesk, setDeskQuery } from "./views/admin.js";
 import { selectChapters, VIEWS } from "./syllabus.js";
 import { applyStageToggle, defaultState, sanitizeState, todayISO, addDays, durationMinutes } from "./engine.js";
 import {
@@ -11,7 +12,7 @@ import {
   updateChapter,
 } from "./store.js";
 import { closeModal, openModal, toast } from "./toast.js";
-import { closePalette, fillTimerChapters, openPalette, paintIdentity, paintPalette, toggleTimerPop } from "./shell.js";
+import { closeOverlayNav, closePalette, fillTimerChapters, openPalette, paintIdentity, paintPalette, toggleNav, toggleTimerPop, wideNav } from "./shell.js";
 import { renderCurrent } from "./render.js";
 import { compressImage, fileToDataUrl } from "./media.js";
 import { esc, formatHours } from "./format.js";
@@ -34,15 +35,17 @@ export function bind() {
 }
 
 function onClick(event) {
+  const sideLink = event.target.closest(".sidebar a");
+  if (sideLink && !wideNav()) closeOverlayNav();
   const el = event.target.closest("[data-action]");
   if (!el) return;
   const action = el.dataset.action;
   if (action === "menu") {
-    document.body.classList.toggle("nav-open");
+    toggleNav();
     return;
   }
   if (action === "menu-close" || action === "palette-go") {
-    document.body.classList.remove("nav-open");
+    closeOverlayNav();
     closePalette();
     return;
   }
@@ -126,9 +129,18 @@ function onClick(event) {
     return;
   }
   if (action === "logout") {
+    invalidateDesk();
     setToken("");
     resetSession();
     location.hash = "#/login";
+    return;
+  }
+  if (action === "desk-approve" || action === "desk-reject" || action === "desk-disable" || action === "desk-enable") {
+    deskAction(action, el.dataset.id);
+    return;
+  }
+  if (action === "desk-copy") {
+    copyCode(el.dataset.code);
     return;
   }
   if (action === "help") {
@@ -200,6 +212,17 @@ function onInput(event) {
     hint.textContent = `Duration ${formatHours(minutes)}. Overnight sessions are counted.`;
     return;
   }
+  if (el.dataset.action === "desk-search") {
+    setDeskQuery(el.value);
+    const caret = el.selectionStart;
+    renderCurrent({ keep: true });
+    const next = document.querySelector("[data-action='desk-search']");
+    if (next) {
+      next.focus();
+      next.setSelectionRange(caret, caret);
+    }
+    return;
+  }
   if (el.id === "palette-input") {
     paintPalette(el.value);
     return;
@@ -238,7 +261,7 @@ async function onSubmit(event) {
   event.preventDefault();
   const kind = form.dataset.form;
   try {
-    if (kind === "login" || kind === "register") {
+    if (kind === "login" || kind === "register" || kind === "redeem") {
       await authenticate(form, kind);
       return;
     }
@@ -257,7 +280,7 @@ async function onSubmit(event) {
     else if (kind === "mock") addMock(form);
     renderCurrent({ keep: true });
   } catch (err) {
-    if (kind === "login" || kind === "register") {
+    if (kind === "login" || kind === "register" || kind === "redeem") {
       const message = err.message || "Could not continue.";
       let card = form.querySelector(".form-error");
       if (!card) {
@@ -280,9 +303,10 @@ function onKey(event) {
     closeModal();
     const pop = document.getElementById("timer-pop");
     if (pop) pop.hidden = true;
-    document.body.classList.remove("nav-open");
+    closeOverlayNav();
     return;
   }
+  if (getUser()?.role === "admin") return;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openPalette();
@@ -302,12 +326,55 @@ function onKey(event) {
   if (view && !event.metaKey && !event.ctrlKey && !event.altKey) location.hash = view.href;
 }
 
+const DESK_PATHS = {
+  "desk-approve": ["approve", "Code issued"],
+  "desk-reject": ["reject", "Request declined"],
+  "desk-disable": ["disable", "Account disabled"],
+  "desk-enable": ["enable", "Account enabled"],
+};
+
+async function deskAction(action, id) {
+  const [path, done] = DESK_PATHS[action];
+  try {
+    const result = await api(`/api/admin/users/${encodeURIComponent(id)}/${path}`, { method: "POST", body: {} });
+    invalidateDesk();
+    toast(result.code ? `Code ${result.code}` : done);
+    renderCurrent({ keep: true });
+  } catch (err) {
+    toast(err.message || "Could not update that student.");
+  }
+}
+
+async function copyCode(code) {
+  try {
+    await navigator.clipboard.writeText(code);
+    toast("Code copied");
+  } catch {
+    toast(code);
+  }
+}
+
 async function authenticate(form, kind) {
   const body = Object.fromEntries(new FormData(form).entries());
-  const path = kind === "register" ? "/api/auth/register" : "/api/auth/login";
+  if (kind === "register") {
+    const result = await api("/api/auth/register", { method: "POST", body });
+    if (result?.token) {
+      invalidateDesk();
+      setToken(result.token);
+      resetSession();
+      location.hash = result.user?.role === "admin" ? "#/admin" : "#/dashboard";
+      return;
+    }
+    const email = encodeURIComponent(String(body.email || "").trim());
+    location.hash = `#/register?sent=1&email=${email}`;
+    return;
+  }
+  const path = kind === "redeem" ? "/api/auth/redeem" : "/api/auth/login";
   const session = await api(path, { method: "POST", body });
+  invalidateDesk();
   setToken(session.token);
-  location.hash = "#/dashboard";
+  resetSession();
+  location.hash = session.user?.role === "admin" ? "#/admin" : "#/dashboard";
 }
 
 function applyChapterField(el, shouldRender) {

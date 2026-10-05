@@ -5,6 +5,7 @@
 
 import dns from "dns";
 import mongoose from "mongoose";
+import { ensureAdmin } from "../seed-admin.js";
 
 const LOG_PREFIX = "[mongodb]";
 const DEFAULT_DB_NAME = "study-tracker";
@@ -110,9 +111,13 @@ function remember(conn) {
 }
 
 export async function connectDB() {
-  if (globalCache.conn && mongoose.connection.readyState === 1) return globalCache.conn;
+  if (globalCache.conn && mongoose.connection.readyState === 1) {
+    await ensureAdmin();
+    return globalCache.conn;
+  }
   if (mongoose.connection.readyState === 1) {
     globalCache.conn = mongoose;
+    await ensureAdmin();
     return mongoose;
   }
 
@@ -145,7 +150,9 @@ export async function connectDB() {
     });
   }
 
-  return globalCache.promise;
+  const conn = await globalCache.promise;
+  await ensureAdmin();
+  return conn;
 }
 
 export function isMongoConnected() {
