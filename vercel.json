@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "env": {
+    "R2_ACCOUNT_ID": "9cbc66c51dbfc216ec865cd84e9e7400",
+    "R2_BUCKET_NAME": "dsa-mastery-media",
+    "R2_PUBLIC_BASE_URL": "https://pub-97c9c4489ec044f592e65ea00c33995b.r2.dev"
+  },
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "same-origin" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" }
+  ]
+}

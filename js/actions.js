@@ -1,0 +1,675 @@
+import { api, setToken } from "./api.js";
+import { selectChapters, VIEWS } from "./syllabus.js";
+import { applyStageToggle, defaultState, sanitizeState, todayISO, addDays, durationMinutes } from "./engine.js";
+import {
+  getData,
+  getUser,
+  resetSession,
+  setYear,
+  touch,
+  ui,
+  updateChapter,
+} from "./store.js";
+import { closeModal, openModal, toast } from "./toast.js";
+import { closePalette, fillTimerChapters, openPalette, paintIdentity, paintPalette, toggleTimerPop } from "./shell.js";
+import { renderCurrent } from "./render.js";
+import { compressImage, fileToDataUrl } from "./media.js";
+import { esc, formatHours } from "./format.js";
+import { logFocusSession, resetTimer, toggleTimer } from "./timer.js";
+
+
+const CASCADES = {
+  "test-subject": ["test-chapter", false],
+  "error-subject": ["error-chapter", false],
+  "log-subject": ["log-chapter", false],
+  "card-subject": ["card-chapter", true],
+};
+
+export function bind() {
+  document.addEventListener("click", onClick);
+  document.addEventListener("change", onChange);
+  document.addEventListener("input", onInput);
+  document.addEventListener("submit", onSubmit);
+  document.addEventListener("keydown", onKey);
+}
+
+function onClick(event) {
+  const el = event.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.dataset.action;
+  if (action === "menu") {
+    document.body.classList.toggle("nav-open");
+    return;
+  }
+  if (action === "menu-close" || action === "palette-go") {
+    document.body.classList.remove("nav-open");
+    closePalette();
+    return;
+  }
+  if (action === "palette") {
+    openPalette();
+    return;
+  }
+  if (action === "palette-close" || action === "modal-close") {
+    closePalette();
+    closeModal();
+    return;
+  }
+  if (action === "modal-confirm") return;
+  if (action === "year") {
+    setYear(el.dataset.year);
+    renderCurrent();
+    return;
+  }
+  if (action === "theme") {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("sm-theme", next);
+    return;
+  }
+  if (action === "timer-pop") {
+    toggleTimerPop();
+    return;
+  }
+  if (action === "timer-run") {
+    toggleTimer();
+    return;
+  }
+  if (action === "timer-reset") {
+    resetTimer();
+    return;
+  }
+  if (action === "timer-log") {
+    if (logFocusSession()) renderCurrent({ keep: true });
+    return;
+  }
+  if (action === "expand") {
+    ui.expanded = ui.expanded === el.dataset.chapter ? null : el.dataset.chapter;
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (action === "clear-backlog") {
+    const today = todayISO();
+    updateChapter(el.dataset.chapter, (chapter) => (
+      chapter.stages.bl ? chapter : applyStageToggle(chapter, "bl", true, today)
+    ));
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (action === "delete-row") {
+    removeRow(el.dataset.list, el.dataset.id);
+    return;
+  }
+  if (action === "reveal-card") {
+    ui.cardReveal = true;
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (action === "grade-card") {
+    gradeCard(el.dataset.id, el.dataset.grade);
+    return;
+  }
+  if (action === "detach") {
+    detach(el.dataset.chapter, el.dataset.key);
+    return;
+  }
+  if (action === "remove-avatar") {
+    removeAvatar();
+    return;
+  }
+  if (action === "export") {
+    exportLedger();
+    return;
+  }
+  if (action === "reset-ask") {
+    askReset();
+    return;
+  }
+  if (action === "logout") {
+    setToken("");
+    resetSession();
+    location.hash = "#/login";
+    return;
+  }
+  if (action === "help") {
+    showHelp();
+  }
+}
+
+function onChange(event) {
+  const el = event.target;
+  if (CASCADES[el.id]) {
+    refillChapters(el.value, CASCADES[el.id][0], CASCADES[el.id][1]);
+    return;
+  }
+  if (el.id === "timer-subject") {
+    fillTimerChapters(el.value);
+    return;
+  }
+  if (el.dataset.action === "stage") {
+    const today = todayISO();
+    updateChapter(el.dataset.chapter, (chapter) => applyStageToggle(chapter, el.dataset.stage, el.checked, today));
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (el.dataset.action === "ui-filter") {
+    ui.filters[el.dataset.group][el.dataset.key] = el.value;
+    if (el.dataset.group === "cards") {
+      ui.cardCursor = 0;
+      ui.cardReveal = false;
+    }
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (el.dataset.action === "ui-flag") {
+    ui.filters[el.dataset.group][el.dataset.key] = el.checked;
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (el.dataset.action === "fix-error") {
+    const row = getData().errors.find((item) => item.id === el.dataset.id);
+    if (row) row.fixed = el.checked;
+    touch();
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (el.dataset.action === "attach") {
+    uploadAttachment(el);
+    return;
+  }
+  if (el.dataset.action === "avatar") {
+    uploadAvatar(el);
+    return;
+  }
+  if (el.dataset.action === "import") {
+    importLedger(el);
+    return;
+  }
+  if (el.dataset.bind === "chapter") {
+    const render = el.dataset.render !== "false" || el.type === "number" || el.type === "date" || el.tagName === "SELECT";
+    applyChapterField(el, render);
+  }
+}
+
+function onInput(event) {
+  const el = event.target;
+  if (el.id === "log-start" || el.id === "log-end") {
+    const hint = document.getElementById("log-duration");
+    if (!hint) return;
+    const minutes = durationMinutes(document.getElementById("log-start").value, document.getElementById("log-end").value);
+    hint.textContent = `Duration ${formatHours(minutes)}. Overnight sessions are counted.`;
+    return;
+  }
+  if (el.id === "palette-input") {
+    paintPalette(el.value);
+    return;
+  }
+  if (el.dataset.action === "filter-chapters") {
+    ui.subjectQuery = el.value;
+    const query = el.value.trim().toLowerCase();
+    document.querySelectorAll("[data-chapter-row]").forEach((row) => {
+      row.hidden = Boolean(query) && !row.dataset.title.includes(query);
+    });
+    document.querySelectorAll("[data-section]").forEach((section) => {
+      const rows = [...section.querySelectorAll("[data-chapter-row]")];
+      section.hidden = rows.length > 0 && rows.every((row) => row.hidden);
+    });
+    return;
+  }
+  if (el.dataset.action === "ui-search") {
+    ui.filters[el.dataset.group].q = el.value.trim().toLowerCase();
+    const caret = el.selectionStart;
+    renderCurrent({ keep: true });
+    const next = document.querySelector(`[data-action="ui-search"][data-group="${el.dataset.group}"]`);
+    if (next) {
+      next.focus();
+      next.setSelectionRange(caret, caret);
+    }
+    return;
+  }
+  if (el.dataset.bind === "chapter" && el.dataset.render === "false" && el.tagName !== "SELECT") {
+    applyChapterField(el, false);
+  }
+}
+
+async function onSubmit(event) {
+  const form = event.target.closest("form[data-form]");
+  if (!form) return;
+  event.preventDefault();
+  const kind = form.dataset.form;
+  try {
+    if (kind === "login" || kind === "register") {
+      await authenticate(form, kind);
+      return;
+    }
+    if (kind === "profile") {
+      await saveProfile(form);
+      return;
+    }
+    if (kind === "targets" || kind === "exams") {
+      saveSettings(form, kind);
+      return;
+    }
+    if (kind === "test") addTest(form);
+    else if (kind === "error") addError(form);
+    else if (kind === "log") addLog(form);
+    else if (kind === "card") addCard(form);
+    else if (kind === "mock") addMock(form);
+    renderCurrent({ keep: true });
+  } catch (err) {
+    if (kind === "login" || kind === "register") {
+      const message = err.message || "Could not continue.";
+      let card = form.querySelector(".form-error");
+      if (!card) {
+        card = document.createElement("p");
+        card.className = "form-error";
+        card.setAttribute("role", "alert");
+        form.prepend(card);
+      }
+      card.textContent = message;
+      return;
+    }
+    toast(err.message || "Could not save that.");
+  }
+}
+
+function onKey(event) {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable;
+  if (event.key === "Escape") {
+    closePalette();
+    closeModal();
+    const pop = document.getElementById("timer-pop");
+    if (pop) pop.hidden = true;
+    document.body.classList.remove("nav-open");
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openPalette();
+    return;
+  }
+  if (typing) return;
+  if (event.key === "?") {
+    showHelp();
+    return;
+  }
+  if (event.key === "/") {
+    event.preventDefault();
+    openPalette();
+    return;
+  }
+  const view = VIEWS.find((item) => item.key.toLowerCase() === event.key.toLowerCase());
+  if (view && !event.metaKey && !event.ctrlKey && !event.altKey) location.hash = view.href;
+}
+
+async function authenticate(form, kind) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  const path = kind === "register" ? "/api/auth/register" : "/api/auth/login";
+  const session = await api(path, { method: "POST", body });
+  setToken(session.token);
+  location.hash = "#/dashboard";
+}
+
+function applyChapterField(el, shouldRender) {
+  const field = el.dataset.field;
+  updateChapter(el.dataset.chapter, (chapter) => {
+    if (field === "attempted" || field === "correct") {
+      chapter[field] = Math.max(0, Math.min(99999, Math.round(Number(el.value) || 0)));
+      if (chapter.correct > chapter.attempted) chapter.correct = chapter.attempted;
+    } else if (field === "nextRevision" || field === "targetDate") {
+      chapter[field] = el.value || null;
+    } else {
+      chapter[field] = el.value;
+    }
+    return chapter;
+  });
+  if (field === "attempted" || field === "correct") {
+    const box = document.querySelector(`[data-chapter="${CSS.escape(el.dataset.chapter)}"][data-field="correct"]`);
+    if (box && document.activeElement !== box) {
+      const chapter = getData().chapters[el.dataset.chapter];
+      if (chapter) box.value = chapter.correct;
+    }
+  }
+  if (shouldRender) renderCurrent({ keep: true });
+}
+
+function refillChapters(subjectId, targetId, optional) {
+  const select = document.getElementById(targetId);
+  if (!select) return;
+  const year = ui.year === "all" ? "all" : Number(ui.year);
+  const chapters = subjectId ? selectChapters({ year, subjectId }) : [];
+  const blank = optional ? `<option value="">None</option>` : "";
+  select.innerHTML = blank + chapters.map((chapter) => `<option value="${chapter.id}">${chapter.year} · ${esc(chapter.no)} ${esc(chapter.title)}</option>`).join("");
+}
+
+function addTest(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  const marks = Number(body.marks) || 0;
+  const total = Number(body.total) || 0;
+  if (total <= 0) throw new Error("Enter what the test was out of.");
+  if (marks > total) throw new Error("Marks cannot be higher than the total.");
+  const attempted = Math.max(0, Math.round(Number(body.attempted) || 0));
+  const correct = Math.min(attempted, Math.max(0, Math.round(Number(body.correct) || 0)));
+  getData().tests.unshift({
+    id: crypto.randomUUID(),
+    date: body.date,
+    subjectId: body.subjectId,
+    chapterId: body.chapterId,
+    type: body.type,
+    marks,
+    total,
+    attempted,
+    correct,
+    retestDate: body.retestDate || null,
+    mistakes: body.mistakes || "",
+    weakConcept: body.weakConcept || "",
+  });
+  touch();
+  toast("Test added");
+}
+
+function addError(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (!body.topic?.trim()) throw new Error("Name the topic that broke.");
+  getData().errors.unshift({
+    id: crypto.randomUUID(),
+    date: body.date,
+    subjectId: body.subjectId,
+    chapterId: body.chapterId,
+    type: body.type,
+    topic: body.topic,
+    why: body.why || "",
+    concept: body.concept || "",
+    formula: body.formula || "",
+    action: body.action || "",
+    retestResult: body.retestResult || "",
+    fixed: false,
+  });
+  touch();
+  toast("Error logged");
+}
+
+function addLog(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  const attempted = Math.max(0, Math.round(Number(body.attempted) || 0));
+  const correct = Math.min(attempted, Math.max(0, Math.round(Number(body.correct) || 0)));
+  getData().logs.unshift({
+    id: crypto.randomUUID(),
+    date: body.date,
+    subjectId: body.subjectId,
+    chapterId: body.chapterId,
+    start: body.start,
+    end: body.end,
+    attempted,
+    correct,
+    achievement: body.achievement || "",
+    problem: body.problem || "",
+    nextAction: body.nextAction || "",
+  });
+  updateChapter(body.chapterId, (chapter) => {
+    chapter.lastStudied = body.date;
+    return chapter;
+  });
+  toast("Session logged");
+}
+
+function addCard(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (!body.front?.trim() || !body.back?.trim()) throw new Error("A card needs a front and a back.");
+  getData().cards.unshift({
+    id: crypto.randomUUID(),
+    subjectId: body.subjectId || "",
+    chapterId: body.chapterId || "",
+    front: body.front,
+    back: body.back,
+    box: 1,
+    due: todayISO(),
+  });
+  ui.cardReveal = false;
+  ui.cardCursor = 0;
+  touch();
+  toast("Card added");
+}
+
+function addMock(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  const percentile = Number(body.percentile);
+  if (!Number.isFinite(percentile) || percentile < 0 || percentile > 100) throw new Error("Percentile has to be between 0 and 100.");
+  getData().mocks.unshift({
+    id: crypto.randomUUID(),
+    date: body.date,
+    name: body.name,
+    percentile,
+    score: Number(body.score) || 0,
+    total: Number(body.total) || 0,
+    note: body.note || "",
+  });
+  touch();
+  toast("Mock added");
+}
+
+function gradeCard(id, grade) {
+  const card = getData().cards.find((item) => item.id === id);
+  if (!card) return;
+  const today = todayISO();
+  if (grade === "again") {
+    card.box = 1;
+    card.due = addDays(today, 1);
+  } else {
+    const gap = [1, 3, 7][Math.min(2, (card.box || 1) - 1)];
+    card.due = addDays(today, gap);
+    card.box = Math.min(3, (card.box || 1) + 1);
+  }
+  ui.cardReveal = false;
+  touch();
+  renderCurrent({ keep: true });
+}
+
+function removeRow(list, id) {
+  const rows = getData()[list];
+  if (!Array.isArray(rows)) return;
+  const index = rows.findIndex((item) => item.id === id);
+  if (index < 0) return;
+  const [item] = rows.splice(index, 1);
+  touch();
+  renderCurrent({ keep: true });
+  toast("Deleted", {
+    label: "Undo",
+    run() {
+      rows.splice(index, 0, item);
+      touch();
+      renderCurrent({ keep: true });
+    },
+  });
+}
+
+async function saveProfile(form) {
+  const name = String(new FormData(form).get("name") || "").trim();
+  const saved = await api("/api/auth/me", { method: "PATCH", body: { name } });
+  Object.assign(getUser(), saved.user);
+  paintIdentity();
+  toast("Profile saved");
+  renderCurrent({ keep: true });
+}
+
+function saveSettings(form, kind) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  const settings = getData().settings;
+  if (kind === "targets") {
+    settings.dailyChapters = clamp(body.dailyChapters, 0, 20);
+    settings.dailyQuestions = clamp(body.dailyQuestions, 0, 500);
+    settings.dailyHours = clamp(body.dailyHours, 0, 16);
+    settings.pomodoroMin = clamp(body.pomodoroMin, 5, 90);
+    settings.breakMin = clamp(body.breakMin, 1, 30);
+  } else {
+    settings.examLabel = body.examLabel || "MHT-CET";
+    settings.examDate = body.examDate || "";
+    settings.secondExamLabel = body.secondExamLabel || "HSC Board";
+    settings.secondExamDate = body.secondExamDate || "";
+  }
+  touch();
+  toast("Saved");
+  renderCurrent({ keep: true });
+}
+
+function clamp(value, min, max) {
+  const number = Math.round(Number(value) || 0);
+  return Math.min(max, Math.max(min, number));
+}
+
+function exportLedger() {
+  const data = getData();
+  data.settings.lastExportAt = new Date().toISOString();
+  touch();
+  const payload = { app: "studymantra", version: 1, exportedAt: data.settings.lastExportAt, state: sanitizeState(data) };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `studymantra-backup-${todayISO()}.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  toast("Backup downloaded");
+  renderCurrent({ keep: true });
+}
+
+async function importLedger(input) {
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch {
+    toast("That file is not JSON.");
+    return;
+  }
+  const clean = sanitizeState(parsed.state || parsed);
+  const chapters = Object.keys(clean.chapters).length;
+  openModal({
+    title: "Replace the ledger?",
+    body: `<p>The file has progress for ${chapters} chapters, ${clean.tests.length} tests, ${clean.logs.length} sessions, and ${clean.cards.length} cards. This replaces what is saved now.</p>`,
+    confirmLabel: "Replace",
+    danger: true,
+    onConfirm() {
+      const data = getData();
+      data.chapters = clean.chapters;
+      data.tests = clean.tests;
+      data.errors = clean.errors;
+      data.logs = clean.logs;
+      data.mocks = clean.mocks;
+      data.cards = clean.cards;
+      data.settings = clean.settings;
+      touch();
+      toast("Backup restored");
+      renderCurrent();
+    },
+  });
+}
+
+function askReset() {
+  openModal({
+    title: "Reset the ledger?",
+    body: `<p>Progress, logs, cards, and targets will be wiped. Your account stays. Type RESET to confirm.</p><input id="reset-confirm" class="modal-input" autocomplete="off">`,
+    confirmLabel: "Wipe ledger",
+    danger: true,
+    onConfirm() {
+      const typed = document.getElementById("reset-confirm")?.value || "";
+      if (typed !== "RESET") {
+        toast("Type RESET in capitals to confirm.");
+        return false;
+      }
+      const fresh = defaultState();
+      const data = getData();
+      data.chapters = fresh.chapters;
+      data.tests = fresh.tests;
+      data.errors = fresh.errors;
+      data.logs = fresh.logs;
+      data.mocks = fresh.mocks;
+      data.cards = fresh.cards;
+      data.settings = fresh.settings;
+      touch();
+      toast("Ledger reset");
+      renderCurrent();
+      return true;
+    },
+  });
+}
+
+async function uploadAttachment(input) {
+  const file = input.files?.[0];
+  const chapterId = input.dataset.chapter;
+  input.value = "";
+  if (!file) return;
+  try {
+    const prepared = file.type === "application/pdf" ? file : await compressImage(file);
+    if (prepared.type === "application/pdf" && prepared.size > 2.5 * 1024 * 1024) throw new Error("PDFs must be 2.5 MB or smaller.");
+    const saved = await api("/api/media/attachment", {
+      method: "POST",
+      body: { data: await fileToDataUrl(prepared), contentType: prepared.type, name: file.name },
+    });
+    updateChapter(chapterId, (chapter) => {
+      chapter.files = [...(chapter.files || []), saved.file].slice(-8);
+      return chapter;
+    });
+    toast("File attached");
+    renderCurrent({ keep: true });
+  } catch (err) {
+    toast(err.message || "Could not upload that file.");
+  }
+}
+
+async function uploadAvatar(input) {
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  try {
+    const prepared = await compressImage(file, 180 * 1024);
+    const saved = await api("/api/media/avatar", {
+      method: "POST",
+      body: { data: await fileToDataUrl(prepared), contentType: prepared.type },
+    });
+    Object.assign(getUser(), saved.user);
+    paintIdentity();
+    toast("Photo updated");
+    renderCurrent({ keep: true });
+  } catch (err) {
+    toast(err.message || "Could not upload that photo.");
+  }
+}
+
+async function removeAvatar() {
+  try {
+    const saved = await api("/api/media/avatar", { method: "DELETE" });
+    Object.assign(getUser(), saved.user);
+    paintIdentity();
+    renderCurrent({ keep: true });
+  } catch (err) {
+    toast(err.message || "Could not remove the photo.");
+  }
+}
+
+async function detach(chapterId, key) {
+  try {
+    await api("/api/media/attachment", { method: "DELETE", body: { key } });
+  } catch (err) {
+    if (err.status !== 404) {
+      toast(err.message || "Could not delete that file.");
+      return;
+    }
+  }
+  updateChapter(chapterId, (chapter) => {
+    chapter.files = (chapter.files || []).filter((file) => file.key !== key);
+    return chapter;
+  });
+  renderCurrent({ keep: true });
+}
+
+function showHelp() {
+  const rows = VIEWS.map((view) => `<li><kbd>${view.key}</kbd> ${view.label}</li>`).join("");
+  openModal({
+    title: "Shortcuts",
+    body: `<ul class="help-list">${rows}<li><kbd>/</kbd> Search</li><li><kbd>?</kbd> This list</li></ul>`,
+    confirmLabel: "Done",
+    onConfirm() { return true; },
+  });
+}
