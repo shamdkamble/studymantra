@@ -39,17 +39,21 @@ export function subjectPage(current) {
         <div><span>Accuracy</span><strong>${pct(summary.accuracy)}</strong></div>
       </div>
     </header>
-    <section class="kpi-grid compact">
+    <section class="kpi-grid subject-kpis" aria-label="Chapter progress">
       ${kpi("Complete", String(summary.complete))}
       ${kpi("In progress", String(summary.progress))}
       ${kpi("Not started", String(summary.notStarted))}
       ${kpi("Remaining", pct(1 - summary.raw))}
     </section>
-    <section class="panel stage-panel">
-      <div class="stage-grid">${STAGES.map((stage) => {
+    <section class="stage-board" aria-label="Stages">
+      <div class="panel-head">
+        <h2>Stages</h2>
+        <span class="muted">Share of chapters with the stage done</span>
+      </div>
+      <div class="stage-cards">${STAGES.map((stage) => {
         const ratio = rows.length ? rows.filter((row) => row.chapter.stages[stage.id]).length / rows.length : 0;
-        const note = stage.id === "r1" || stage.id === "r2" ? "Counts toward readiness. Later passes stay in the history." : `weight ${stage.weight}`;
-        return `<div><span title="${esc(stage.label)}. ${esc(note)}">${esc(stage.short)}</span>${bar(ratio)}<b>${pct(ratio)}</b></div>`;
+        const note = stage.id === "r1" || stage.id === "r2" ? "The first two revisions count toward readiness. Later passes stay in the history." : `Weight ${stage.weight}`;
+        return `<article title="${esc(note)}"><span>${esc(stageName(stage))}</span><strong>${pct(ratio)}</strong>${bar(ratio)}</article>`;
       }).join("")}</div>
     </section>
     <div class="toolbar">
@@ -78,6 +82,11 @@ export function subjectPage(current) {
 
 function kpi(label, value) {
   return `<article class="kpi"><span>${esc(label)}</span><strong>${esc(value)}</strong></article>`;
+}
+
+function stageName(stage) {
+  if (stage.id === "pyq") return "Previous year questions";
+  return stage.label;
 }
 
 function summarizeLocal(rows) {
