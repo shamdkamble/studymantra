@@ -1,4 +1,4 @@
-import { bind } from "./actions.js";
+import { bind, closePreview } from "./actions.js";
 import { renderCurrent } from "./render.js";
 import { closeOverlayNav } from "./shell.js";
 import { flush, setConflictHandler } from "./store.js";
@@ -18,6 +18,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("hashchange", () => {
+  closePreview();
   closeOverlayNav();
   renderCurrent();
 });

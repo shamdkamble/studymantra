@@ -17,6 +17,7 @@ import {
   isWeak,
   removeRevision,
   revisionStatus,
+  listDocuments,
   sanitizeChapter,
   sanitizeState,
   streakInfo,
@@ -267,4 +268,50 @@ test("sanitize drops unknown chapters, clamps marks, and keeps formulas", () => 
   assert.equal(clean.settings.dailyHours, 0);
   assert.equal(clean.settings.examDate, "2027-05-02");
   assert.equal(clean.settings.pomodoroMin, 25);
+});
+
+test("attachments stay with the note they came from", () => {
+  const file = {
+    id: "f1",
+    name: "notes.pdf",
+    url: "https://example.com/study/u/files/a.pdf",
+    key: "study/u/files/a.pdf",
+    contentType: "application/pdf",
+  };
+  const extra = (index) => ({ ...file, id: `x${index}`, name: `e${index}.pdf`, key: `study/u/files/e${index}.pdf` });
+  const clean = sanitizeState({
+    chapters: {
+      "11-phy-02": {
+        files: [file, { ...file, id: "bad", key: "users/other/a.pdf", name: "nope.pdf" }, { url: "http://x", key: "study/u/x" }],
+      },
+    },
+    errors: [{
+      id: "e1",
+      subjectId: "phy",
+      chapterId: "11-phy-02",
+      topic: "Vectors",
+      date: "2026-10-01",
+      files: [file, ...Array.from({ length: 10 }, (_, index) => extra(index))],
+    }],
+    logs: [{ id: "l1", subjectId: "phy", chapterId: "11-phy-02", date: "2026-10-02", achievement: "Finished examples", files: [file] }],
+    tests: [{ id: "t1", subjectId: "phy", chapterId: "11-phy-02", date: "2026-10-03", marks: 8, total: 10, weakConcept: "Dot product", files: [file] }],
+    mocks: [{ id: "m1", name: "CET 1", date: "2026-10-04", note: "time pressure", percentile: 90, files: [file] }],
+  });
+  assert.equal(clean.chapters["11-phy-02"].files.length, 1);
+  assert.equal(clean.chapters["11-phy-02"].files[0].name, "notes.pdf");
+  assert.equal(clean.errors[0].files.length, 8);
+  const docs = listDocuments(clean);
+  const counts = {};
+  for (const row of docs) counts[row.source] = (counts[row.source] || 0) + 1;
+  assert.equal(counts["Chapter notes"], 1);
+  assert.equal(counts["Error log"], 8);
+  assert.equal(counts["Study log"], 1);
+  assert.equal(counts["Test"], 1);
+  assert.equal(counts["CET mock"], 1);
+  assert.equal(docs[0].source, "CET mock");
+  assert.equal(docs.find((row) => row.source === "Error log").topic, "Vectors");
+  assert.equal(docs.find((row) => row.source === "Error log").chapterId, "11-phy-02");
+  assert.equal(docs.find((row) => row.source === "Study log").topic, "Finished examples");
+  assert.equal(docs.find((row) => row.source === "Test").topic, "Dot product");
+  assert.equal(docs.find((row) => row.source === "CET mock").list, "mocks");
 });

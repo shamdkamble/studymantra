@@ -3,6 +3,7 @@ import { STAGES, chapterProgress, getChapter, isWeak, todayISO } from "../engine
 
 const GRID_STAGES = STAGES.filter((stage) => stage.id !== "r1" && stage.id !== "r2");
 const SHEET_COLUMNS = 15;
+import { fileBlock } from "../files.js";
 import { getData, ui } from "../store.js";
 import { bar, esc, formatLong, optionList, pct, statusPill, yearLabel } from "../format.js";
 import { emptyBlock } from "./bits.js";
@@ -161,9 +162,8 @@ function detail(meta, chapter, today) {
     <label class="field field-wide"><span>Notes</span><textarea rows="4" data-bind="chapter" data-field="notes" data-chapter="${meta.id}" data-render="false" placeholder="Formulas, traps, page numbers">${esc(chapter.notes)}</textarea></label>
     <div class="field field-wide">
       <span>Files</span>
-      <ul class="file-list">${(chapter.files || []).map((file) => `<li><a href="${esc(file.url)}" target="_blank" rel="noopener noreferrer">${esc(file.name)}</a><button type="button" class="text-btn" data-action="detach" data-chapter="${meta.id}" data-key="${esc(file.key)}">Remove</button></li>`).join("")}</ul>
-      <label class="btn btn-ghost btn-small">Attach image or PDF<input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" data-action="attach" data-chapter="${meta.id}"></label>
-      <small>Stored on the same Cloudflare bucket as DSAMantra, under study/. The bucket is public-read, so the link is unlisted, not private.</small>
+      ${fileBlock(chapter.files, { chapter: meta.id })}
+      <small>Images and PDFs. The eye opens a preview. They also show up on Documents. The link is unlisted, not private.</small>
     </div>
     <div class="field field-wide rev-log">
       <span>Revision history · ${chapter.revisions.length} ${chapter.revisions.length === 1 ? "time" : "times"}</span>

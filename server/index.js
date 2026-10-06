@@ -279,8 +279,10 @@ app.put("/api/state", requireStudent, async (req, res) => {
       res.status(413).json({ error: { message: "That ledger is too large to save.", code: "PAYLOAD_TOO_LARGE" } });
       return;
     }
-    for (const chapter of Object.values(state.chapters)) {
-      chapter.files = (chapter.files || []).filter((file) => ownsKey(req.auth.sub, file.key));
+    const keepOwned = (files) => (files || []).filter((file) => ownsKey(req.auth.sub, file.key));
+    for (const chapter of Object.values(state.chapters)) chapter.files = keepOwned(chapter.files);
+    for (const list of [state.tests, state.errors, state.logs, state.mocks]) {
+      for (const row of list || []) row.files = keepOwned(row.files);
     }
 
     const existing = await StudyState.findOne({ userId: req.auth.sub }).lean();

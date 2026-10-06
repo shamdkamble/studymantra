@@ -342,6 +342,7 @@ export const VIEWS = [
   { href: "#/tests", label: "Tests", key: "T" },
   { href: "#/errors", label: "Error log", key: "E" },
   { href: "#/log", label: "Study log", key: "L" },
+  { href: "#/documents", label: "Documents", key: "O" },
   { href: "#/week", label: "Weekly", key: "W" },
   { href: "#/cards", label: "Flashcards", key: "F" },
   { href: "#/mocks", label: "CET mocks", key: "M" },

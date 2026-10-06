@@ -106,6 +106,7 @@ export async function putObject({ key, body, contentType }) {
     Key: key,
     Body: body,
     ContentType: contentType,
+    ContentDisposition: "inline",
     CacheControl: "public, max-age=31536000, immutable",
   }));
   return `${cfg.publicBaseUrl}/${key}`;

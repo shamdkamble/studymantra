@@ -3,6 +3,7 @@ import { buildWeeks, durationMinutes, testRollup, todayISO } from "../engine.js"
 import { getData, ui } from "../store.js";
 import { columnChart, lineChart, shareBars } from "../charts.js";
 import { esc, formatHours, formatLong, optionList, pct, yearLabel } from "../format.js";
+import { fileBlock, pendingFileField } from "../files.js";
 import { chapterLink, emptyBlock, scoped, subjectList } from "./bits.js";
 
 function subjectSelect(id, selected = "") {
@@ -47,6 +48,7 @@ export function testsPage() {
       <label class="field"><span>Retest</span><input name="retestDate" type="date"></label>
       <label class="field"><span>Weak concept</span><input name="weakConcept" maxlength="240"></label>
       <label class="field field-wide"><span>Main mistakes</span><textarea name="mistakes" rows="2"></textarea></label>
+      ${pendingFileField("test")}
       <div class="form-actions"><button class="btn btn-primary" type="submit">Add test</button></div>
     </form>
     <div class="toolbar">
@@ -62,7 +64,7 @@ export function testsPage() {
         return `<tr class="${test.retestDate && test.retestDate <= today ? "is-due" : ""}">
           <td>${esc(formatLong(test.date))}</td>
           <td>${meta ? chapterLink(meta) : esc(subjectName(test.subjectId))}</td>
-          <td>${esc(test.type)}<small class="block">${esc(test.weakConcept || test.mistakes || "")}</small></td>
+          <td>${esc(test.type)}<small class="block">${esc(test.weakConcept || test.mistakes || "")}</small>${fileBlock(test.files, { list: "tests", id: test.id, compact: true })}</td>
           <td>${pct(score)} <small class="muted">${test.marks}/${test.total}</small></td>
           <td class="acc" data-tone="${accuracy != null && accuracy < 0.6 ? "bad" : "ok"}">${pct(accuracy)} <small class="muted">${Math.max(0, test.attempted - test.correct)} wrong</small></td>
           <td>${esc(formatLong(test.retestDate))}</td>
@@ -104,6 +106,7 @@ export function errorsPage() {
       <label class="field"><span>Formula</span><input name="formula" maxlength="400"></label>
       <label class="field"><span>Action</span><input name="action" maxlength="400"></label>
       <label class="field"><span>Retest result</span><input name="retestResult" maxlength="160"></label>
+      ${pendingFileField("error")}
       <div class="form-actions"><button class="btn btn-primary" type="submit">Add error</button></div>
     </form>
     <div class="toolbar">
@@ -119,7 +122,7 @@ export function errorsPage() {
         return `<tr>
           <td>${esc(formatLong(error.date))}</td>
           <td>${meta ? chapterLink(meta) : esc(subjectName(error.subjectId))}</td>
-          <td><b>${esc(error.type)}</b> · ${esc(error.topic)}<small class="block">${esc(error.why)}</small><small class="block">${esc(error.concept)}</small>${error.formula ? `<code>${esc(error.formula)}</code>` : ""}</td>
+          <td><b>${esc(error.type)}</b> · ${esc(error.topic)}<small class="block">${esc(error.why)}</small><small class="block">${esc(error.concept)}</small>${error.formula ? `<code>${esc(error.formula)}</code>` : ""}${fileBlock(error.files, { list: "errors", id: error.id, compact: true })}</td>
           <td><label class="checkline"><input type="checkbox" data-action="fix-error" data-id="${esc(error.id)}" ${error.fixed ? "checked" : ""}> Fixed</label><small class="block">${esc(error.action)}</small></td>
           <td><button type="button" class="text-btn" data-action="delete-row" data-list="errors" data-id="${esc(error.id)}">Delete</button></td>
         </tr>`;
@@ -153,6 +156,7 @@ export function logPage() {
       <label class="field"><span>What moved</span><input name="achievement" maxlength="400"></label>
       <label class="field"><span>What stuck</span><input name="problem" maxlength="400"></label>
       <label class="field field-wide"><span>Next action</span><input name="nextAction" maxlength="400"></label>
+      ${pendingFileField("log")}
       <div class="form-actions"><button class="btn btn-primary" type="submit">Add session</button></div>
     </form>
     ${rows.length ? `<div class="table-scroll"><table class="sheet sheet-loose">
@@ -165,7 +169,7 @@ export function logPage() {
           <td>${meta ? chapterLink(meta) : esc(subjectName(log.subjectId))}</td>
           <td>${esc(log.start)}–${esc(log.end)} <small class="muted">${formatHours(durationMinutes(log.start, log.end))}</small></td>
           <td>${log.correct}/${log.attempted} <small class="muted">${pct(accuracy)}</small></td>
-          <td>${esc(log.achievement || log.nextAction || log.problem || "—")}</td>
+          <td>${esc(log.achievement || log.nextAction || log.problem || "—")}${fileBlock(log.files, { list: "logs", id: log.id, compact: true })}</td>
           <td><button type="button" class="text-btn" data-action="delete-row" data-list="logs" data-id="${esc(log.id)}">Delete</button></td>
         </tr>`;
       }).join("")}</tbody>
@@ -266,6 +270,7 @@ export function mocksPage() {
       <label class="field"><span>Score</span><input name="score" type="number" min="0" step="0.5" value="0"></label>
       <label class="field"><span>Out of</span><input name="total" type="number" min="0" step="0.5" value="200"></label>
       <label class="field field-wide"><span>Note</span><input name="note" maxlength="400"></label>
+      ${pendingFileField("mock")}
       <div class="form-actions"><button class="btn btn-primary" type="submit">Add mock</button></div>
     </form>
     ${rows.length >= 2 ? `<section class="panel">${lineChart(rows.map((mock) => ({ y: mock.percentile, label: `${mock.date} ${mock.percentile}`, tick: mock.date.slice(5) })), { caption: "Percentile trend" })}</section>` : ""}
@@ -273,7 +278,7 @@ export function mocksPage() {
       <thead><tr><th>Date</th><th>Mock</th><th>Percentile</th><th>Score</th><th></th></tr></thead>
       <tbody>${rows.slice().reverse().map((mock) => `<tr>
         <td>${esc(formatLong(mock.date))}</td>
-        <td>${esc(mock.name)}<small class="block">${esc(mock.note)}</small></td>
+        <td>${esc(mock.name)}<small class="block">${esc(mock.note)}</small>${fileBlock(mock.files, { list: "mocks", id: mock.id, compact: true })}</td>
         <td><strong>${mock.percentile}</strong></td>
         <td>${mock.total ? `${mock.score}/${mock.total}` : esc(String(mock.score))}</td>
         <td><button type="button" class="text-btn" data-action="delete-row" data-list="mocks" data-id="${esc(mock.id)}">Delete</button></td>

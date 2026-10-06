@@ -12,6 +12,7 @@ const MAIN_LINKS = [
   ["tests", "Tests", "T"],
   ["errors", "Error log", "E"],
   ["log", "Study log", "L"],
+  ["documents", "Documents", "O"],
   ["week", "Weekly", "W"],
   ["cards", "Flashcards", "F"],
   ["mocks", "CET mocks", "M"],
@@ -109,6 +110,16 @@ export function ensureShell() {
       <label class="field"><span>Subject</span><select id="timer-subject">${SUBJECTS.map((subject) => `<option value="${subject.id}">${esc(subject.short)}</option>`).join("")}</select></label>
       <label class="field"><span>Chapter</span><select id="timer-chapter"></select></label>
       <button type="button" class="btn btn-ghost btn-block" data-action="timer-log">Log this focus</button>
+    </div>
+  </div>
+  <div id="preview" class="preview" hidden>
+    <button type="button" class="scrim" data-action="preview-close" aria-label="Close preview"></button>
+    <div class="preview-card" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+      <div class="preview-head">
+        <h2 id="preview-title">Document</h2>
+        <button type="button" class="btn btn-ghost btn-small" data-action="preview-close">Close</button>
+      </div>
+      <div id="preview-body" class="preview-body"></div>
     </div>
   </div>`;
   fillTimerChapters("m1");

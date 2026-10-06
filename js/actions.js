@@ -15,6 +15,7 @@ import { closeModal, openModal, toast } from "./toast.js";
 import { closeOverlayNav, closePalette, fillTimerChapters, openPalette, paintIdentity, paintPalette, toggleNav, toggleTimerPop, wideNav } from "./shell.js";
 import { renderCurrent } from "./render.js";
 import { compressImage, fileToDataUrl } from "./media.js";
+import { clearPending, forgetPending, paintPending, rememberPending, takePending } from "./files.js";
 import { esc, formatHours } from "./format.js";
 import { logFocusSession, resetTimer, toggleTimer } from "./timer.js";
 
@@ -133,7 +134,15 @@ function onClick(event) {
     return;
   }
   if (action === "detach") {
-    detach(el.dataset.chapter, el.dataset.key);
+    detach(el);
+    return;
+  }
+  if (action === "preview-file") {
+    openPreview(el);
+    return;
+  }
+  if (action === "preview-close") {
+    closePreview();
     return;
   }
   if (action === "remove-avatar") {
@@ -150,6 +159,8 @@ function onClick(event) {
   }
   if (action === "logout") {
     invalidateDesk();
+    clearPending();
+    closePreview();
     setToken("");
     resetSession();
     location.hash = "#/login";
@@ -319,6 +330,7 @@ async function onSubmit(event) {
 function onKey(event) {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable;
   if (event.key === "Escape") {
+    closePreview();
     closePalette();
     closeModal();
     const pop = document.getElementById("timer-pop");
@@ -450,6 +462,7 @@ function addTest(form) {
     retestDate: body.retestDate || null,
     mistakes: body.mistakes || "",
     weakConcept: body.weakConcept || "",
+    files: takePending("test"),
   });
   touch();
   toast("Test added");
@@ -471,6 +484,7 @@ function addError(form) {
     action: body.action || "",
     retestResult: body.retestResult || "",
     fixed: false,
+    files: takePending("error"),
   });
   touch();
   toast("Error logged");
@@ -492,6 +506,7 @@ function addLog(form) {
     achievement: body.achievement || "",
     problem: body.problem || "",
     nextAction: body.nextAction || "",
+    files: takePending("log"),
   });
   updateChapter(body.chapterId, (chapter) => {
     chapter.lastStudied = body.date;
@@ -530,6 +545,7 @@ function addMock(form) {
     score: Number(body.score) || 0,
     total: Number(body.total) || 0,
     note: body.note || "",
+    files: takePending("mock"),
   });
   touch();
   toast("Mock added");
@@ -558,6 +574,9 @@ function removeRow(list, id) {
   const index = rows.findIndex((item) => item.id === id);
   if (index < 0) return;
   const [item] = rows.splice(index, 1);
+  for (const file of item.files || []) {
+    if (file?.key) removeRemote(file.key);
+  }
   touch();
   renderCurrent({ keep: true });
   toast("Deleted", {
@@ -638,6 +657,7 @@ async function importLedger(input) {
     confirmLabel: "Replace",
     danger: true,
     onConfirm() {
+      clearPending();
       const data = getData();
       data.chapters = clean.chapters;
       data.tests = clean.tests;
@@ -665,6 +685,7 @@ function askReset() {
         toast("Type RESET in capitals to confirm.");
         return false;
       }
+      clearPending();
       const fresh = defaultState();
       const data = getData();
       data.chapters = fresh.chapters;
@@ -685,6 +706,9 @@ function askReset() {
 async function uploadAttachment(input) {
   const file = input.files?.[0];
   const chapterId = input.dataset.chapter;
+  const list = input.dataset.list;
+  const rowId = input.dataset.id;
+  const pending = input.dataset.pending;
   input.value = "";
   if (!file) return;
   try {
@@ -694,6 +718,21 @@ async function uploadAttachment(input) {
       method: "POST",
       body: { data: await fileToDataUrl(prepared), contentType: prepared.type, name: file.name },
     });
+    if (pending) {
+      rememberPending(pending, saved.file);
+      paintPending(pending);
+      toast("File attached");
+      return;
+    }
+    if (list && rowId) {
+      const row = (getData()[list] || []).find((item) => item.id === rowId);
+      if (!row) throw new Error("That row is no longer here.");
+      row.files = [...(row.files || []), saved.file].slice(-8);
+      touch();
+      toast("File attached");
+      renderCurrent({ keep: true });
+      return;
+    }
     updateChapter(chapterId, (chapter) => {
       chapter.files = [...(chapter.files || []), saved.file].slice(-8);
       return chapter;
@@ -735,20 +774,89 @@ async function removeAvatar() {
   }
 }
 
-async function detach(chapterId, key) {
+async function removeRemote(key) {
   try {
     await api("/api/media/attachment", { method: "DELETE", body: { key } });
+    return true;
   } catch (err) {
-    if (err.status !== 404) {
-      toast(err.message || "Could not delete that file.");
-      return;
-    }
+    if (err.status === 404) return true;
+    toast(err.message || "Could not delete that file.");
+    return false;
   }
-  updateChapter(chapterId, (chapter) => {
-    chapter.files = (chapter.files || []).filter((file) => file.key !== key);
-    return chapter;
-  });
+}
+
+async function detach(el) {
+  const key = el.dataset.key;
+  const pending = el.dataset.pending;
+  const chapterId = el.dataset.chapter;
+  const list = el.dataset.list;
+  const rowId = el.dataset.id;
+  if (!key || !(await removeRemote(key))) return;
+  if (pending) {
+    forgetPending(pending, key);
+    paintPending(pending);
+    return;
+  }
+  if (chapterId) {
+    updateChapter(chapterId, (chapter) => {
+      chapter.files = (chapter.files || []).filter((file) => file.key !== key);
+      return chapter;
+    });
+    renderCurrent({ keep: true });
+    return;
+  }
+  const row = (getData()[list] || []).find((item) => item.id === rowId);
+  if (row) {
+    row.files = (row.files || []).filter((file) => file.key !== key);
+    touch();
+  }
   renderCurrent({ keep: true });
+}
+
+function previewKind(type, url) {
+  if (type.startsWith("image/")) return "image";
+  if (type === "application/pdf") return "pdf";
+  if (type) return "";
+  if (/\.(jpe?g|png|webp)(\?|$)/i.test(url)) return "image";
+  if (/\.pdf(\?|$)/i.test(url)) return "pdf";
+  return "";
+}
+
+function openPreview(el) {
+  const root = document.getElementById("preview");
+  const body = document.getElementById("preview-body");
+  const title = document.getElementById("preview-title");
+  if (!root || !body || !title) return;
+  const url = el.dataset.url || "";
+  const name = el.dataset.name || "Document";
+  const type = el.dataset.type || "";
+  title.textContent = name;
+  body.replaceChildren();
+  const kind = url.startsWith("https://") ? previewKind(type, url) : "";
+  if (kind === "image") {
+    const img = document.createElement("img");
+    img.alt = name;
+    img.src = url;
+    body.append(img);
+  } else if (kind === "pdf") {
+    const frame = document.createElement("iframe");
+    frame.title = name;
+    frame.src = url;
+    body.append(frame);
+  } else {
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "This file cannot be previewed. Images and PDFs open here.";
+    body.append(note);
+  }
+  root.hidden = false;
+}
+
+export function closePreview() {
+  const body = document.getElementById("preview-body");
+  if (body) body.replaceChildren();
+  const root = document.getElementById("preview");
+  if (root) root.hidden = true;
 }
 
 function showHelp() {

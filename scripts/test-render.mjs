@@ -39,6 +39,12 @@ test("dashboard, subject, and records render without throwing", () => {
   assert.match(pageHtml(route("tests")), /Add test/);
   assert.match(pageHtml(route("errors")), /Silly mistake/);
   assert.match(pageHtml(route("log")), /Study log/);
+  assert.match(pageHtml(route("log")), /data-pending="log"/);
+  assert.match(pageHtml(route("errors")), /data-pending="error"/);
+  assert.match(pageHtml(route("tests")), /data-pending="test"/);
+  assert.match(pageHtml(route("mocks")), /data-pending="mock"/);
+  assert.match(pageHtml(route("documents")), /Documents/);
+  assert.match(pageHtml(route("documents")), /No documents yet/);
   assert.match(pageHtml(route("week")), /This week/);
   assert.match(pageHtml(route("cards")), /Flashcards/);
   assert.match(pageHtml(route("mocks")), /Percentile/);

@@ -21,6 +21,7 @@ export function pageTitle(current) {
     tests: "Tests",
     errors: "Error log",
     log: "Study log",
+    documents: "Documents",
     week: "Weekly",
     cards: "Flashcards",
     mocks: "CET mocks",

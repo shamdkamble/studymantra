@@ -145,7 +145,7 @@ export function sanitizeChapter(raw) {
   for (const stage of STAGES) stages[stage.id] = Boolean(src.stages?.[stage.id]);
   const attempted = whole(src.attempted, 99999);
   const correct = Math.min(attempted, whole(src.correct, 99999));
-  const files = Array.isArray(src.files) ? src.files.slice(0, 8).map(sanitizeFile).filter(Boolean) : [];
+  const files = sanitizeFiles(src.files);
   const revisions = sanitizeRevisions(src);
   stages.r1 = revisions.length >= 1;
   stages.r2 = revisions.length >= 2;
@@ -168,6 +168,10 @@ export function sanitizeChapter(raw) {
     completedAt: dateOrNull(src.completedAt),
     files,
   };
+}
+
+function sanitizeFiles(raw) {
+  return Array.isArray(raw) ? raw.slice(0, 8).map(sanitizeFile).filter(Boolean) : [];
 }
 
 function sanitizeFile(raw) {
@@ -620,6 +624,7 @@ function sanitizeTest(raw, index) {
     retestDate: dateOrNull(raw.retestDate),
     mistakes: clipBlock(raw.mistakes, 2000),
     weakConcept: clipText(raw.weakConcept, 240),
+    files: sanitizeFiles(raw.files),
   };
 }
 
@@ -641,6 +646,7 @@ function sanitizeError(raw, index) {
     action: clipText(raw.action, 400),
     retestResult: clipText(raw.retestResult, 160),
     fixed: Boolean(raw.fixed),
+    files: sanitizeFiles(raw.files),
   };
 }
 
@@ -664,6 +670,7 @@ function sanitizeLog(raw, index) {
     achievement: clipText(raw.achievement, 400),
     problem: clipText(raw.problem, 400),
     nextAction: clipText(raw.nextAction, 400),
+    files: sanitizeFiles(raw.files),
   };
 }
 
@@ -677,7 +684,34 @@ function sanitizeMock(raw, index) {
     score: decimal(raw.score, 1000),
     total: decimal(raw.total, 1000),
     note: clipText(raw.note, 400),
+    files: sanitizeFiles(raw.files),
   };
+}
+
+export function listDocuments(state) {
+  const rows = [];
+  const push = (files, place) => {
+    for (const file of files || []) {
+      if (!file?.key || !file?.url) continue;
+      rows.push({ ...place, file });
+    }
+  };
+  for (const [chapterId, chapter] of Object.entries(state?.chapters || {})) {
+    push(chapter.files, { source: "Chapter notes", chapterId, topic: "", date: chapter.lastStudied || "", list: "chapters", rowId: chapterId });
+  }
+  for (const error of state?.errors || []) {
+    push(error.files, { source: "Error log", chapterId: error.chapterId, topic: error.topic || "", date: error.date || "", list: "errors", rowId: error.id });
+  }
+  for (const log of state?.logs || []) {
+    push(log.files, { source: "Study log", chapterId: log.chapterId, topic: log.achievement || log.problem || log.nextAction || "", date: log.date || "", list: "logs", rowId: log.id });
+  }
+  for (const test of state?.tests || []) {
+    push(test.files, { source: "Test", chapterId: test.chapterId, topic: test.weakConcept || test.mistakes || test.type || "", date: test.date || "", list: "tests", rowId: test.id });
+  }
+  for (const mock of state?.mocks || []) {
+    push(mock.files, { source: "CET mock", chapterId: "", topic: mock.note || mock.name || "", date: mock.date || "", list: "mocks", rowId: mock.id });
+  }
+  return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || a.file.name.localeCompare(b.file.name));
 }
 
 function sanitizeCard(raw, index) {

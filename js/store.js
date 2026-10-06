@@ -17,6 +17,7 @@ export const ui = {
     errors: { subject: "all", type: "all", fixed: "all" },
     tests: { subject: "all" },
     cards: { subject: "all" },
+    documents: { q: "" },
   },
   cardReveal: false,
   cardCursor: 0,

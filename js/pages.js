@@ -3,6 +3,7 @@ import { dashboardPage, pcmPage } from "./views/home.js";
 import { subjectPage } from "./views/subject.js";
 import { backlogPage, revisionPage } from "./views/trackers.js";
 import { cardsPage, errorsPage, logPage, mocksPage, testsPage, weekPage } from "./views/records.js";
+import { documentsPage } from "./views/documents.js";
 import { settingsPage } from "./views/settings.js";
 import { authHtml } from "./views/auth.js";
 
@@ -15,6 +16,7 @@ export function pageHtml(current) {
     case "tests": return testsPage();
     case "errors": return errorsPage();
     case "log": return logPage();
+    case "documents": return documentsPage();
     case "week": return weekPage();
     case "cards": return cardsPage();
     case "mocks": return mocksPage();
@@ -43,6 +45,7 @@ export function titleFor(current) {
     tests: "Tests",
     errors: "Error log",
     log: "Study log",
+    documents: "Documents",
     week: "Weekly",
     cards: "Flashcards",
     mocks: "CET mocks",
