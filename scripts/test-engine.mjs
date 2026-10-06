@@ -5,6 +5,7 @@ import {
   STAGES,
   STAGE_WEIGHT_TOTAL,
   addDays,
+  addRevision,
   applyStageToggle,
   buildTodayPlan,
   buildWeeks,
@@ -14,7 +15,9 @@ import {
   durationMinutes,
   emptyChapter,
   isWeak,
+  removeRevision,
   revisionStatus,
+  sanitizeChapter,
   sanitizeState,
   streakInfo,
   summarize,
@@ -85,14 +88,32 @@ test("stage toggles stamp backlog, final, and spaced revision", () => {
   assert.equal(chapter.backlogClearedAt, null);
 
   chapter = applyStageToggle(chapter, "r1", true, today);
+  assert.equal(chapter.revisions.length, 1);
   assert.equal(chapter.rev1At, today);
+  assert.equal(chapter.stages.r1, true);
   assert.equal(chapter.nextRevision, "2026-10-12");
   chapter = applyStageToggle(chapter, "r2", true, "2026-10-31");
+  assert.equal(chapter.revisions.length, 2);
+  assert.equal(chapter.rev2At, "2026-10-31");
   assert.equal(chapter.nextRevision, "2026-11-21");
+  chapter = addRevision(chapter, "2026-11-02");
+  assert.equal(chapter.revisions.length, 3);
+  assert.equal(chapter.revisions[2].at, "2026-11-02");
+  assert.equal(chapter.stages.r2, true);
+  assert.equal(chapter.nextRevision, "2026-11-23");
+  chapter = addRevision(chapter, "2026-09-01");
+  assert.equal(chapter.revisions[0].at, "2026-09-01");
+  assert.equal(chapter.rev1At, "2026-09-01");
+  assert.equal(chapter.nextRevision, "2026-11-23");
+  chapter = addRevision(chapter, "2026-11-02");
+  assert.equal(chapter.revisions.length, 5);
+  chapter = removeRevision(chapter, chapter.revisions[0].id);
+  assert.equal(chapter.revisions.length, 4);
+  assert.equal(chapter.revisions[0].at, today);
   chapter = applyStageToggle(chapter, "fin", true, today);
   assert.equal(chapter.completedAt, today);
 
-  assert.equal(revisionStatus(chapter, today).status, "completed");
+  assert.equal(revisionStatus(chapter, today).status, "upcoming");
   const due = emptyChapter();
   due.nextRevision = "2026-10-01";
   assert.equal(revisionStatus(due, today).status, "due");
@@ -100,6 +121,14 @@ test("stage toggles stamp backlog, final, and spaced revision", () => {
   upcoming.nextRevision = "2026-10-20";
   assert.equal(revisionStatus(upcoming, today).status, "upcoming");
   assert.equal(revisionStatus(emptyChapter(), today).status, "not_set");
+
+  const legacy = sanitizeChapter({ stages: { r1: true, r2: true }, rev1At: "2026-09-01", rev2At: "2026-09-20" });
+  assert.equal(legacy.revisions.length, 2);
+  assert.equal(legacy.revisions[0].at, "2026-09-01");
+  assert.equal(legacy.stages.r1, true);
+  let capped = emptyChapter();
+  for (let i = 0; i < 205; i += 1) capped = addRevision(capped, "2026-10-05");
+  assert.equal(capped.revisions.length, 200);
 });
 
 test("weak topics come from pooled test accuracy or unfixed errors", () => {

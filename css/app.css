@@ -380,6 +380,13 @@ html[data-sidebar="closed"] .sidebar {
   padding: 8px 10px;
 }
 .sheet input.num { width: 4.6rem; padding: 6px; }
+.sheet input.rev-date { width: 9.2rem; padding: 6px 8px; }
+.rev-add { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.rev-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; text-align: left; min-width: 180px; }
+.rev-list li { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+.rev-count { font-variant-numeric: tabular-nums; font-weight: 650; }
+.rev-log .rev-add { justify-content: flex-start; margin-top: 8px; }
+.rev-log .rev-date { width: 11rem; }
 .sheet select { width: auto; }
 .grow { min-width: 160px; }
 .table-scroll { margin-top: 12px; }

@@ -94,7 +94,7 @@ export function dashboardPage() {
     ["In progress", String(summary.progress), "One to nine stages"],
     ["Not started", String(summary.notStarted), "No stage ticked"],
     ["PYQ completion", pct(summary.pyq), "Chapters with PYQs done"],
-    ["Revision completion", pct(summary.revision), "Revision 1 and 2"],
+    ["Revision completion", pct(summary.revision), "First two revisions"],
     ["Test completion", pct(summary.test), "Test stage ticked"],
     ["Practice completion", pct(summary.practice), "Module and solved book"],
     ["Question accuracy", pct(summary.accuracy), summary.attempted ? `${summary.correct}/${summary.attempted}` : "No questions yet"],
@@ -110,7 +110,7 @@ export function dashboardPage() {
       <div>
         <p class="eyebrow">${esc(yearLabel(ui.year))} · ${esc(formatLong(today))}</p>
         <h1>${esc(greeting(getUser()?.name))}</h1>
-        <p class="lede">Exam readiness counts PYQs, both revisions, the test, and mistake analysis three times as much as theory, backlog, or a solved book.</p>
+        <p class="lede">Exam readiness counts PYQs, the first two revisions, the test, and mistake analysis three times as much as theory, backlog, or a solved book. Later revisions stay in the history.</p>
       </div>
       <div class="head-side">
         <div class="counts">
@@ -217,7 +217,7 @@ export function pcmPage() {
       ${mini("Backlog cleared", pct(overall.backlog))}
       ${mini("Practice", pct(overall.practice))}
       ${mini("PYQs", pct(overall.pyq))}
-      ${mini("Revision", pct(overall.revision))}
+      ${mini("Revision", pct(overall.revision), "First two passes")}
       ${mini("Tests stage", pct(overall.test))}
       ${mini("Test accuracy", pct(overallTests.accuracy), overallTests.count ? `${overallTests.count} logged` : "No tests logged")}
     </section>

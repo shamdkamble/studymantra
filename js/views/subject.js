@@ -1,5 +1,8 @@
 import { BLURBS, selectChapters, subjectById } from "../syllabus.js";
 import { STAGES, chapterProgress, getChapter, isWeak, todayISO } from "../engine.js";
+
+const GRID_STAGES = STAGES.filter((stage) => stage.id !== "r1" && stage.id !== "r2");
+const SHEET_COLUMNS = 15;
 import { getData, ui } from "../store.js";
 import { bar, esc, formatLong, optionList, pct, statusPill, yearLabel } from "../format.js";
 import { emptyBlock } from "./bits.js";
@@ -45,26 +48,28 @@ export function subjectPage(current) {
     <section class="panel stage-panel">
       <div class="stage-grid">${STAGES.map((stage) => {
         const ratio = rows.length ? rows.filter((row) => row.chapter.stages[stage.id]).length / rows.length : 0;
-        return `<div><span title="${esc(stage.label)} · weight ${stage.weight}">${esc(stage.short)}</span>${bar(ratio)}<b>${pct(ratio)}</b></div>`;
+        const note = stage.id === "r1" || stage.id === "r2" ? "Counts toward readiness. Later passes stay in the history." : `weight ${stage.weight}`;
+        return `<div><span title="${esc(stage.label)}. ${esc(note)}">${esc(stage.short)}</span>${bar(ratio)}<b>${pct(ratio)}</b></div>`;
       }).join("")}</div>
     </section>
     <div class="toolbar">
       <label class="search"><span class="sr-only">Filter chapters</span>
         <input id="chapter-filter" type="search" placeholder="Filter chapters" value="${esc(ui.subjectQuery)}" data-action="filter-chapters">
       </label>
-      <p class="muted legend">Raw is stages ÷ 10. Ready gives PYQ, revisions, test, and mistake analysis three times the weight.</p>
+      <p class="muted legend">Raw is stages ÷ 10. The first two revisions count toward readiness. Every later pass is kept in the history.</p>
     </div>
     <div class="table-scroll">
       <table class="sheet">
         <thead>
           <tr>
             <th class="sticky">Chapter</th>
-            ${STAGES.map((stage) => `<th title="${esc(stage.label)}">${esc(stage.short)}</th>`).join("")}
+            ${GRID_STAGES.map((stage) => `<th title="${esc(stage.label)}">${esc(stage.short)}</th>`).join("")}
+            <th title="How many times this chapter was revised">Rev</th>
             <th>Att</th><th>Correct</th><th>Acc</th><th>Done</th><th>Status</th>
           </tr>
         </thead>
         ${groups.map((group) => `<tbody data-section>
-          ${group.section ? `<tr class="section-row"><th colspan="16">${esc(group.section)}</th></tr>` : ""}
+          ${group.section ? `<tr class="section-row"><th colspan="${SHEET_COLUMNS}">${esc(group.section)}</th></tr>` : ""}
           ${group.chapters.map((meta) => chapterRows(meta, state, today, query)).join("")}
         </tbody>`).join("")}
       </table>
@@ -122,14 +127,15 @@ function chapterRows(meta, state, today, query) {
         </button>
         ${weak ? `<span class="pill" data-tone="red">Weak</span>` : ""}
       </th>
-      ${STAGES.map((stage) => `<td><label class="tick"><input type="checkbox" data-action="stage" data-chapter="${meta.id}" data-stage="${stage.id}" ${chapter.stages[stage.id] ? "checked" : ""}><span class="sr-only">${esc(stage.label)} for ${esc(meta.title)}</span></label></td>`).join("")}
+      ${GRID_STAGES.map((stage) => `<td><label class="tick"><input type="checkbox" data-action="stage" data-chapter="${meta.id}" data-stage="${stage.id}" ${chapter.stages[stage.id] ? "checked" : ""}><span class="sr-only">${esc(stage.label)} for ${esc(meta.title)}</span></label></td>`).join("")}
+      <td class="rev-count" title="${esc((chapter.revisions || []).map((item) => formatLong(item.at)).join(", ") || "No revisions yet")}">${chapter.revisions.length}</td>
       <td><input class="num" type="number" min="0" max="9999" inputmode="numeric" value="${chapter.attempted}" data-bind="chapter" data-field="attempted" data-chapter="${meta.id}" data-render="false"></td>
       <td><input class="num" type="number" min="0" max="9999" inputmode="numeric" value="${chapter.correct}" data-bind="chapter" data-field="correct" data-chapter="${meta.id}" data-render="false"></td>
       <td class="acc" data-tone="${progress.accuracy != null && progress.accuracy < 0.6 ? "bad" : "ok"}">${pct(progress.accuracy)}</td>
       <td class="done"><b>${pct(progress.raw)}</b><small>Ready ${pct(progress.weighted)}</small>${bar(progress.raw)}</td>
       <td>${statusPill(progress.status)}</td>
     </tr>
-    ${open ? `<tr class="detail-row" data-chapter-row data-title="${esc(title)}"${hidden}><td colspan="16">${detail(meta, chapter, today)}</td></tr>` : ""}`;
+    ${open ? `<tr class="detail-row" data-chapter-row data-title="${esc(title)}"${hidden}><td colspan="${SHEET_COLUMNS}">${detail(meta, chapter, today)}</td></tr>` : ""}`;
 }
 
 function detail(meta, chapter, today) {
@@ -140,8 +146,6 @@ function detail(meta, chapter, today) {
     <label class="field"><span>Importance</span><select data-bind="chapter" data-field="importance" data-chapter="${meta.id}">${optionList(choices, chapter.importance)}</select></label>
     <label class="field"><span>Exam priority</span><select data-bind="chapter" data-field="priority" data-chapter="${meta.id}">${optionList(choices, chapter.priority)}</select></label>
     <label class="field"><span>Last studied</span><input value="${esc(formatLong(chapter.lastStudied))}" disabled></label>
-    <label class="field"><span>Revision 1</span><input value="${esc(formatLong(chapter.rev1At))}" disabled></label>
-    <label class="field"><span>Revision 2</span><input value="${esc(formatLong(chapter.rev2At))}" disabled></label>
     <label class="field"><span>Next revision</span><input type="date" value="${esc(chapter.nextRevision || "")}" data-bind="chapter" data-field="nextRevision" data-chapter="${meta.id}"></label>
     <label class="field"><span>Target date</span><input type="date" value="${esc(chapter.targetDate || "")}" data-bind="chapter" data-field="targetDate" data-chapter="${meta.id}"></label>
     <label class="field field-wide"><span>Next action</span><input value="${esc(chapter.nextAction)}" data-bind="chapter" data-field="nextAction" data-chapter="${meta.id}" data-render="false" placeholder="What happens next"></label>
@@ -152,6 +156,14 @@ function detail(meta, chapter, today) {
       <label class="btn btn-ghost btn-small">Attach image or PDF<input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" data-action="attach" data-chapter="${meta.id}"></label>
       <small>Stored on the same Cloudflare bucket as DSAMantra, under study/. The bucket is public-read, so the link is unlisted, not private.</small>
     </div>
-    <p class="muted field-wide">Today is ${esc(formatLong(today))}. Ticking Revision 1 sets the next revision 7 days out. Revision 2 sets it 21 days out.</p>
+    <div class="field field-wide rev-log">
+      <span>Revision history · ${chapter.revisions.length} ${chapter.revisions.length === 1 ? "time" : "times"}</span>
+      ${chapter.revisions.length ? `<ol class="rev-list">${chapter.revisions.map((item, index) => `<li><span><b>${index + 1}</b> ${esc(formatLong(item.at))}</span><button type="button" class="text-btn" data-action="revision-remove" data-chapter="${meta.id}" data-revision="${esc(item.id)}">Remove</button></li>`).join("")}</ol>` : `<p class="muted">No revisions yet.</p>`}
+      <div class="rev-add">
+        <input class="rev-date" type="date" value="${today}" data-revision-date aria-label="Date revised">
+        <button type="button" class="btn btn-small" data-action="revision-add" data-chapter="${meta.id}">Add revision</button>
+      </div>
+    </div>
+    <p class="muted field-wide">The first revision sets the next date 7 days out. Every revision after that sets it 21 days out. Removing one keeps the next date you set by hand.</p>
   </div>`;
 }

@@ -48,6 +48,7 @@ function lastActivity(state, doc) {
     for (const key of ["backlogClearedAt", "completedAt", "rev1At", "rev2At"]) {
       if (chapter[key]) stamps.push(String(chapter[key]));
     }
+    for (const revision of chapter.revisions || []) if (revision.at) stamps.push(String(revision.at));
   }
   if (doc?.clientUpdatedAt) stamps.push(String(doc.clientUpdatedAt));
   stamps.sort();

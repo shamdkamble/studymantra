@@ -1,7 +1,7 @@
 import { api, setToken } from "./api.js";
 import { invalidateDesk, setDeskQuery } from "./views/admin.js";
 import { selectChapters, VIEWS } from "./syllabus.js";
-import { applyStageToggle, defaultState, sanitizeState, todayISO, addDays, durationMinutes } from "./engine.js";
+import { addRevision, applyStageToggle, defaultState, removeRevision, sanitizeState, todayISO, addDays, durationMinutes } from "./engine.js";
 import {
   getData,
   getUser,
@@ -88,6 +88,26 @@ function onClick(event) {
   }
   if (action === "expand") {
     ui.expanded = ui.expanded === el.dataset.chapter ? null : el.dataset.chapter;
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (action === "revision-add") {
+    const host = el.closest("td") || el.closest(".rev-log");
+    const date = host?.querySelector("[data-revision-date]")?.value || todayISO();
+    let skipped = false;
+    let full = false;
+    updateChapter(el.dataset.chapter, (chapter) => {
+      const next = addRevision(chapter, date);
+      skipped = next.revisions.length === chapter.revisions.length;
+      full = chapter.revisions.length >= 200;
+      return next;
+    });
+    if (skipped) toast(full ? "This chapter already has 200 revisions." : "Pick a date for this revision.");
+    renderCurrent({ keep: true });
+    return;
+  }
+  if (action === "revision-remove") {
+    updateChapter(el.dataset.chapter, (chapter) => removeRevision(chapter, el.dataset.revision));
     renderCurrent({ keep: true });
     return;
   }

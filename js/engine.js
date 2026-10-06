@@ -11,8 +11,8 @@ export const STAGES = [
   { id: "mod", short: "MOD", label: "Module", weight: 0.5 },
   { id: "sb", short: "SB", label: "Solved book", weight: 0.5 },
   { id: "pyq", short: "PYQ", label: "PYQs", weight: 1.5 },
-  { id: "r1", short: "R1", label: "Revision 1", weight: 1.5 },
-  { id: "r2", short: "R2", label: "Revision 2", weight: 1.5 },
+  { id: "r1", short: "R1", label: "First revision", weight: 1.5 },
+  { id: "r2", short: "R2", label: "Second revision", weight: 1.5 },
   { id: "tst", short: "TST", label: "Test", weight: 1.5 },
   { id: "ma", short: "MA", label: "Mistake analysis", weight: 1.5 },
   { id: "fin", short: "FIN", label: "Final complete", weight: 0.5 },
@@ -20,6 +20,7 @@ export const STAGES = [
 
 export const STAGE_WEIGHT_TOTAL = STAGES.reduce((sum, stage) => sum + stage.weight, 0);
 
+const MAX_REVISIONS = 200;
 const PRIORITIES = new Set(["low", "medium", "high"]);
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -67,6 +68,7 @@ export function emptyChapter() {
     attempted: 0,
     correct: 0,
     lastStudied: null,
+    revisions: [],
     rev1At: null,
     rev2At: null,
     nextRevision: null,
@@ -144,6 +146,9 @@ export function sanitizeChapter(raw) {
   const attempted = whole(src.attempted, 99999);
   const correct = Math.min(attempted, whole(src.correct, 99999));
   const files = Array.isArray(src.files) ? src.files.slice(0, 8).map(sanitizeFile).filter(Boolean) : [];
+  const revisions = sanitizeRevisions(src);
+  stages.r1 = revisions.length >= 1;
+  stages.r2 = revisions.length >= 2;
   return {
     stages,
     difficulty: choice(src.difficulty, DIFFICULTIES, "medium"),
@@ -152,8 +157,9 @@ export function sanitizeChapter(raw) {
     attempted,
     correct,
     lastStudied: dateOrNull(src.lastStudied),
-    rev1At: dateOrNull(src.rev1At),
-    rev2At: dateOrNull(src.rev2At),
+    revisions,
+    rev1At: revisions[0]?.at || null,
+    rev2At: revisions[1]?.at || null,
     nextRevision: dateOrNull(src.nextRevision),
     targetDate: dateOrNull(src.targetDate),
     nextAction: clipText(src.nextAction, 400),
@@ -182,7 +188,7 @@ export function isPristine(chapter) {
   const empty = emptyChapter();
   if (chapter.notes || chapter.nextAction || chapter.files?.length) return false;
   if (chapter.attempted || chapter.correct) return false;
-  if (chapter.lastStudied || chapter.rev1At || chapter.rev2At || chapter.nextRevision) return false;
+  if (chapter.lastStudied || chapter.revisions?.length || chapter.rev1At || chapter.rev2At || chapter.nextRevision) return false;
   if (chapter.targetDate || chapter.backlogClearedAt || chapter.completedAt) return false;
   if (chapter.difficulty !== empty.difficulty) return false;
   if (chapter.importance !== empty.importance || chapter.priority !== empty.priority) return false;
@@ -214,34 +220,107 @@ export function chapterProgress(chapter) {
   };
 }
 
+function revisionKey(raw, index, used) {
+  const cleaned = clipText(raw, 40).replace(/[^a-zA-Z0-9_-]/g, "");
+  if (cleaned && !used.has(cleaned)) return cleaned;
+  let n = index + 1;
+  let id = `rev-${n}`;
+  while (used.has(id)) {
+    n += 1;
+    id = `rev-${n}`;
+  }
+  return id;
+}
+
+function pushRevision(out, used, id, at) {
+  const date = dateOrNull(at);
+  if (!date || out.length >= MAX_REVISIONS) return;
+  const key = revisionKey(id, out.length, used);
+  used.add(key);
+  out.push({ id: key, at: date });
+}
+
+function sanitizeRevisions(src) {
+  const out = [];
+  const used = new Set();
+  if (Array.isArray(src.revisions)) {
+    for (const item of src.revisions) {
+      if (typeof item === "string") pushRevision(out, used, "", item);
+      else pushRevision(out, used, item?.id, item?.at);
+    }
+  } else {
+    const stages = src.stages || {};
+    if (stages.r1 || src.rev1At) pushRevision(out, used, "rev-1", src.rev1At || src.lastStudied);
+    if (stages.r2 || src.rev2At) pushRevision(out, used, "rev-2", src.rev2At || src.rev1At || src.lastStudied);
+  }
+  out.sort((a, b) => a.at.localeCompare(b.at));
+  return out;
+}
+
+function nextRevisionId(revisions) {
+  const used = new Set(revisions.map((item) => item.id));
+  return revisionKey("", revisions.length, used);
+}
+
+function scheduleRevision(chapter, at) {
+  chapter.nextRevision = addDays(at, chapter.revisions.length <= 1 ? 7 : 21);
+  if (!chapter.lastStudied || at >= chapter.lastStudied) chapter.lastStudied = at;
+  return chapter;
+}
+
+export function latestRevisionAt(chapter) {
+  let latest = null;
+  for (const item of chapter?.revisions || []) {
+    if (item.at && (!latest || item.at > latest)) latest = item.at;
+  }
+  return latest;
+}
+
+export function addRevision(chapter, date) {
+  const at = dateOrNull(date);
+  const current = sanitizeChapter(chapter);
+  if (!at || current.revisions.length >= MAX_REVISIONS) return current;
+  const latest = latestRevisionAt(current) || "";
+  const revisions = [...current.revisions, { id: nextRevisionId(current.revisions), at }];
+  const next = sanitizeChapter({ ...current, revisions });
+  if (at >= latest) scheduleRevision(next, at);
+  return next;
+}
+
+export function removeRevision(chapter, id) {
+  const current = sanitizeChapter(chapter);
+  const revisions = current.revisions.filter((item) => item.id !== id);
+  if (revisions.length === current.revisions.length) return current;
+  return sanitizeChapter({ ...current, revisions });
+}
+
+function removeRevisionAt(chapter, index) {
+  const current = sanitizeChapter(chapter);
+  if (!current.revisions[index]) return current;
+  const revisions = current.revisions.filter((_, itemIndex) => itemIndex !== index);
+  return sanitizeChapter({ ...current, revisions });
+}
+
 export function applyStageToggle(chapter, stageId, on, today) {
   const next = sanitizeChapter(chapter);
   if (!STAGES.some((stage) => stage.id === stageId)) return next;
+  if (stageId === "r1" || stageId === "r2") {
+    const slot = stageId === "r1" ? 0 : 1;
+    if (!on) return removeRevisionAt(next, slot);
+    if (next.revisions.length > slot) {
+      const revisions = next.revisions.map((item, index) => (index === slot ? { ...item, at: today } : item));
+      return scheduleRevision(sanitizeChapter({ ...next, revisions }), today);
+    }
+    return addRevision(next, today);
+  }
   next.stages[stageId] = Boolean(on);
   if (on) next.lastStudied = today;
   if (stageId === "bl") next.backlogClearedAt = on ? (next.backlogClearedAt || today) : null;
   if (stageId === "fin") next.completedAt = on ? (next.completedAt || today) : null;
-  if (stageId === "r1") {
-    if (on) {
-      next.rev1At = today;
-      next.nextRevision = addDays(today, 7);
-    } else {
-      next.rev1At = null;
-    }
-  }
-  if (stageId === "r2") {
-    if (on) {
-      next.rev2At = today;
-      next.nextRevision = addDays(today, 21);
-    } else {
-      next.rev2At = null;
-    }
-  }
   return next;
 }
 
 export function revisionStatus(chapter, today) {
-  if (chapter.stages?.r1 && chapter.stages?.r2) return { status: "completed", label: "Completed" };
   if (!chapter.nextRevision) return { status: "not_set", label: "Not set" };
   if (chapter.nextRevision <= today) return { status: "due", label: "Due" };
   return { status: "upcoming", label: "Upcoming" };

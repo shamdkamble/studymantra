@@ -1,10 +1,10 @@
-import { chapterProgress, getChapter, revisionStatus, todayISO } from "../engine.js";
+import { chapterProgress, getChapter, latestRevisionAt, revisionStatus, todayISO } from "../engine.js";
 import { getData, ui } from "../store.js";
 import { bar, esc, formatLong, optionList, pct, yearLabel } from "../format.js";
 import { chapterLink, emptyBlock, scoped } from "./bits.js";
 
 const PRIORITY = [["all", "All priorities"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]];
-const REV = [["all", "All statuses"], ["due", "Due"], ["upcoming", "Upcoming"], ["not_set", "Not set"], ["completed", "Completed"]];
+const REV = [["all", "All chapters"], ["due", "Due"], ["upcoming", "Upcoming"], ["not_set", "Not set"], ["none", "Never revised"]];
 
 export function backlogPage() {
   const state = getData();
@@ -51,15 +51,18 @@ export function revisionPage() {
   const rows = scoped().map((meta) => {
     const chapter = getChapter(state, meta.id);
     return { meta, chapter, revision: revisionStatus(chapter, today) };
-  }).filter((row) => filter.status === "all" || row.revision.status === filter.status)
+  }).filter((row) => {
+    if (filter.status === "none") return row.chapter.revisions.length === 0;
+    return filter.status === "all" || row.revision.status === filter.status;
+  })
     .filter((row) => !filter.q || `${row.meta.title} ${row.meta.no}`.toLowerCase().includes(filter.q))
-    .sort((a, b) => revRank(a.revision.status) - revRank(b.revision.status) || String(a.chapter.nextRevision || "9999").localeCompare(String(b.chapter.nextRevision || "9999")));
+    .sort((a, b) => revRank(a.revision.status) - revRank(b.revision.status) || String(a.chapter.nextRevision || "9999").localeCompare(String(b.chapter.nextRevision || "9999")) || b.chapter.revisions.length - a.chapter.revisions.length);
 
   return `<header class="page-head">
       <div>
         <p class="eyebrow">${esc(yearLabel(ui.year))} · ${esc(formatLong(today))}</p>
         <h1>Revision</h1>
-        <p class="lede">Due means the next revision date has arrived and both revisions are not done. Revision 1 schedules +7 days. Revision 2 schedules +21.</p>
+        <p class="lede">Log a pass every time you revise a chapter. The history keeps every date, with no limit at two. The first pass sets the next date 7 days out. Every pass after that sets it 21 days out.</p>
       </div>
     </header>
     <div class="toolbar">
@@ -67,16 +70,22 @@ export function revisionPage() {
       <input type="search" placeholder="Search chapters" value="${esc(filter.q)}" data-action="ui-search" data-group="revision">
     </div>
     ${rows.length ? `<div class="table-scroll"><table class="sheet sheet-loose">
-      <thead><tr><th class="sticky">Chapter</th><th>Status</th><th>Last studied</th><th>Rev 1</th><th>Rev 2</th><th>Next revision</th></tr></thead>
+      <thead><tr><th class="sticky">Chapter</th><th>Times</th><th>Last revision</th><th>History</th><th>Next revision</th><th></th></tr></thead>
       <tbody>${rows.map((row) => `<tr class="${row.revision.status === "due" ? "is-due" : ""}">
-        <th class="sticky">${chapterLink(row.meta)}</th>
-        <td><span class="pill" data-tone="${tone(row.revision.status)}">${esc(row.revision.label)}</span></td>
-        <td>${esc(formatLong(row.chapter.lastStudied))}</td>
-        <td>${esc(formatLong(row.chapter.rev1At))}${row.chapter.stages.r1 ? "" : " <span class=\"muted\">open</span>"}</td>
-        <td>${esc(formatLong(row.chapter.rev2At))}${row.chapter.stages.r2 ? "" : " <span class=\"muted\">open</span>"}</td>
+        <th class="sticky">${chapterLink(row.meta)}<br><span class="pill" data-tone="${tone(row.revision.status)}">${esc(row.revision.label)}</span></th>
+        <td class="rev-count">${row.chapter.revisions.length}</td>
+        <td>${esc(formatLong(latestRevisionAt(row.chapter)))}</td>
+        <td>${historyList(row.chapter, row.meta.id)}</td>
         <td><input type="date" value="${esc(row.chapter.nextRevision || "")}" data-bind="chapter" data-field="nextRevision" data-chapter="${row.meta.id}"></td>
+        <td><div class="rev-add"><input class="rev-date" type="date" value="${today}" data-revision-date aria-label="Date revised ${esc(row.meta.title)}"><button type="button" class="btn btn-small" data-action="revision-add" data-chapter="${row.meta.id}">Log</button></div></td>
       </tr>`).join("")}</tbody>
     </table></div>` : emptyBlock("Nothing in this filter", "Change the status filter or widen the year.")}`;
+}
+
+function historyList(chapter, chapterId) {
+  const items = chapter.revisions || [];
+  if (!items.length) return `<span class="muted">None yet</span>`;
+  return `<ol class="rev-list">${items.map((item, index) => `<li><span><b>${index + 1}</b> ${esc(formatLong(item.at))}</span><button type="button" class="text-btn" data-action="revision-remove" data-chapter="${chapterId}" data-revision="${esc(item.id)}">Remove</button></li>`).join("")}</ol>`;
 }
 
 function rank(priority) {
